@@ -80,3 +80,6 @@ python3 -m unittest discover -s tests -p "test_*.py" -v
 - Read [CONTRIBUTING.md](./CONTRIBUTING.md)
 - Report bugs with [Bug Report](./.github/ISSUE_TEMPLATE/bug_report.md)
 - Propose features with [Feature Request](./.github/ISSUE_TEMPLATE/feature_request.md)
+
+## Growth
+- Launch strategy: [docs/LAUNCH_PLAYBOOK.md](./docs/LAUNCH_PLAYBOOK.md)
