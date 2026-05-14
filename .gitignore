@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenv
+.venv/
+venv/
+
+# Tool artifacts
+reproguard.contract.json
+reproguard.report.json
+reproguard.report.md
+artifacts/
+
+# OS
+.DS_Store

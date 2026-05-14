@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vibe-repro-guard"
+version = "1.2.0"
+description = "Deterministic replay guardrail for AI-assisted coding"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Alessandro Caramazza" }
+]
+keywords = ["ai", "reproducibility", "vibe-coding", "determinism", "testing"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Topic :: Software Development :: Testing",
+]
+
+[project.urls]
+Homepage = "https://github.com/alecaram007/vibe-repro-guard"
+Repository = "https://github.com/alecaram007/vibe-repro-guard"
+Issues = "https://github.com/alecaram007/vibe-repro-guard/issues"
+
+[project.scripts]
+reproguard = "reproguard:main"
+
+[tool.setuptools]
+py-modules = ["reproguard"]

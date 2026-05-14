@@ -1,0 +1,17 @@
+mode: advisory
+score_threshold: 85
+replay_runs: 3
+fail_on_lockfile_drift: true
+require_declared_env_values: true
+build_command: "python3 -m compileall ."
+test_command: "python3 -m unittest discover -s tests -p 'test_*.py'"
+required_env:
+  - API_TOKEN
+redact_env_patterns:
+  - TOKEN
+  - SECRET
+  - PASSWORD
+runtime:
+  python: "3.12.3"
+lockfiles:
+  - requirements.txt

@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "codex/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Unit tests
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Prepare config
+        run: cp reproguard.yaml.example reproguard.yaml
+      - name: Run ReproGuard
+        run: |
+          python reproguard.py --project-root . --summary-json || true
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: reproguard-artifacts
+          path: |
+            reproguard.contract.json
+            reproguard.report.json
+            reproguard.report.md
+          if-no-files-found: ignore
