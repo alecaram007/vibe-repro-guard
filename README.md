@@ -63,7 +63,7 @@ python3 reproguard.py --output-dir ./artifacts --summary-json
 
 ## Artifacts
 - `reproguard.contract.json`
-- `reproguard.report.json`
+- `reproguard.report.json` ([schema](./docs/reproguard.report.schema.json), [docs](./docs/REPORT_SCHEMA.md))
 - `reproguard.report.md`
 
 ## Exit Codes

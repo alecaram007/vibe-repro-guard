@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.13 - 2026-05-15
+- Added a versioned JSON Schema for `reproguard.report.json`.
+- Documented report compatibility rules and required machine-readable fields.
+- Linked report schema docs from the README artifacts section.
+- Added regression coverage to keep report schema docs aligned with emitted reports.
+
 ## 1.2.12 - 2026-05-15
 - Added a ready-to-run Node.js fixture at `examples/node-basic` for onboarding and reproducibility demos.
 - Documented fixture usage in the main README under a new `Examples` section.

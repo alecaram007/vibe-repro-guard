@@ -12,6 +12,7 @@ from typing import Optional
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "reproguard.py"
+REPORT_SCHEMA = ROOT / "docs" / "reproguard.report.schema.json"
 
 
 def write(path: Path, content: str) -> None:
@@ -41,6 +42,71 @@ def run_guard(project_root: Path, extra_env=None, output_dir: Optional[Path] = N
     assert report_path.exists(), "report json missing"
     report = json.loads(report_path.read_text(encoding="utf-8"))
     return proc, report
+
+
+def resolve_schema_ref(schema: dict, ref: str) -> dict:
+    prefix = "#/$defs/"
+    if not ref.startswith(prefix):
+        raise AssertionError(f"unsupported schema ref: {ref}")
+    return schema["$defs"][ref[len(prefix) :]]
+
+
+def assert_matches_schema_subset(testcase: unittest.TestCase, value, schema_node: dict, root_schema: dict, path: str = "$"):
+    if "$ref" in schema_node:
+        assert_matches_schema_subset(testcase, value, resolve_schema_ref(root_schema, schema_node["$ref"]), root_schema, path)
+        return
+
+    expected_type = schema_node.get("type")
+    if expected_type is not None:
+        allowed_types = expected_type if isinstance(expected_type, list) else [expected_type]
+        testcase.assertTrue(any(json_type_matches(value, item) for item in allowed_types), f"{path} expected {expected_type}")
+
+    if "const" in schema_node:
+        testcase.assertEqual(value, schema_node["const"], path)
+    if "enum" in schema_node:
+        testcase.assertIn(value, schema_node["enum"], path)
+    if "minimum" in schema_node and isinstance(value, (int, float)) and not isinstance(value, bool):
+        testcase.assertGreaterEqual(value, schema_node["minimum"], path)
+    if "maximum" in schema_node and isinstance(value, (int, float)) and not isinstance(value, bool):
+        testcase.assertLessEqual(value, schema_node["maximum"], path)
+
+    if isinstance(value, dict):
+        required = schema_node.get("required", [])
+        for key in required:
+            testcase.assertIn(key, value, f"{path}.{key} missing")
+
+        properties = schema_node.get("properties", {})
+        additional = schema_node.get("additionalProperties", True)
+        if additional is False:
+            unexpected = sorted(set(value) - set(properties))
+            testcase.assertEqual(unexpected, [], f"{path} has undocumented fields")
+
+        for key, child in value.items():
+            if key in properties:
+                assert_matches_schema_subset(testcase, child, properties[key], root_schema, f"{path}.{key}")
+            elif isinstance(additional, dict):
+                assert_matches_schema_subset(testcase, child, additional, root_schema, f"{path}.{key}")
+    elif isinstance(value, list) and "items" in schema_node:
+        for index, item in enumerate(value):
+            assert_matches_schema_subset(testcase, item, schema_node["items"], root_schema, f"{path}[{index}]")
+
+
+def json_type_matches(value, expected_type: str) -> bool:
+    if expected_type == "object":
+        return isinstance(value, dict)
+    if expected_type == "array":
+        return isinstance(value, list)
+    if expected_type == "string":
+        return isinstance(value, str)
+    if expected_type == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if expected_type == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if expected_type == "boolean":
+        return isinstance(value, bool)
+    if expected_type == "null":
+        return value is None
+    raise AssertionError(f"unsupported json schema type: {expected_type}")
 
 
 class ReproGuardTests(unittest.TestCase):
@@ -520,6 +586,35 @@ class ReproGuardTests(unittest.TestCase):
             self.assertEqual(report["meta"]["output_dir"], str(outdir.resolve()))
             self.assertTrue((outdir / "reproguard.contract.json").exists())
             self.assertTrue((outdir / "reproguard.report.md").exists())
+
+    def test_report_schema_documentation_matches_emitted_report(self):
+        with tempfile.TemporaryDirectory(prefix="rg-report-schema-") as tmp:
+            root = Path(tmp)
+            write(root / "requirements.txt", "# lock marker\n")
+            write(root / "tests.py", "print('ok')\n")
+            config = textwrap.dedent(
+                f"""
+                mode: advisory
+                score_threshold: 85
+                test_command: "python3 tests.py"
+                runtime:
+                  python: "{platform.python_version()}"
+                lockfiles:
+                  - requirements.txt
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+
+            proc, report = run_guard(root)
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+
+            schema = json.loads(REPORT_SCHEMA.read_text(encoding="utf-8"))
+            assert_matches_schema_subset(self, report, schema, schema)
+            self.assertEqual(report["meta"]["schema_version"], "1.1")
+            self.assertEqual(
+                schema["properties"]["meta"]["properties"]["schema_version"]["const"],
+                report["meta"]["schema_version"],
+            )
 
     def test_default_python_discovery_with_zero_tests_is_reported(self):
         with tempfile.TemporaryDirectory(prefix="rg-zero-tests-") as tmp:

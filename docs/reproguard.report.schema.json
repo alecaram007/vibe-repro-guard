@@ -1,0 +1,407 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/alecaram007/vibe-repro-guard/blob/main/docs/reproguard.report.schema.json",
+  "title": "Vibe Repro Guard report",
+  "description": "Schema for reproguard.report.json artifacts emitted by Vibe Repro Guard.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["meta", "summary", "issues", "phases"],
+  "properties": {
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "generated_at", "project_root", "output_dir", "tool"],
+      "properties": {
+        "schema_version": {
+          "type": "string",
+          "const": "1.1",
+          "description": "Report schema version. Consumers should gate parsers on this field."
+        },
+        "generated_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "UTC timestamp for report generation."
+        },
+        "project_root": {
+          "type": "string",
+          "description": "Absolute project root path used for the guard run."
+        },
+        "output_dir": {
+          "type": "string",
+          "description": "Absolute artifact output directory."
+        },
+        "tool": {
+          "type": "string",
+          "const": "vibe-repro-guard"
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "score", "score_threshold", "replay_status", "issue_totals", "exit_code"],
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": ["advisory", "strict"]
+        },
+        "score": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "score_threshold": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "replay_status": {
+          "type": "string",
+          "enum": ["passed", "failed"]
+        },
+        "issue_totals": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["critical", "high", "medium", "low"],
+          "properties": {
+            "critical": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "high": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "medium": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "low": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "exit_code": {
+          "type": "integer",
+          "enum": [0, 20, 30, 40]
+        }
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/issue"
+      }
+    },
+    "phases": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseline", "contract", "replay"],
+      "properties": {
+        "baseline": {
+          "$ref": "#/$defs/baseline"
+        },
+        "contract": {
+          "$ref": "#/$defs/contract_phase"
+        },
+        "replay": {
+          "$ref": "#/$defs/replay_phase"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "severity", "phase", "evidence", "remediation", "deduction"],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["critical", "high", "medium", "low"]
+        },
+        "phase": {
+          "type": "string",
+          "enum": ["baseline", "contract", "replay"]
+        },
+        "evidence": {
+          "type": "string"
+        },
+        "remediation": {
+          "type": "string"
+        },
+        "deduction": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "baseline": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["timestamp_utc", "platform", "cwd", "git"],
+      "properties": {
+        "timestamp_utc": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "platform": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["system", "release", "machine", "python"],
+          "properties": {
+            "system": {
+              "type": "string"
+            },
+            "release": {
+              "type": "string"
+            },
+            "machine": {
+              "type": "string"
+            },
+            "python": {
+              "type": "string"
+            }
+          }
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "git": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["is_git_repo"],
+          "properties": {
+            "is_git_repo": {
+              "type": "boolean"
+            },
+            "commit": {
+              "type": "string"
+            },
+            "branch": {
+              "type": "string"
+            },
+            "dirty": {
+              "type": "boolean"
+            },
+            "dirty_entries": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "contract_phase": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["project_type", "expected_lockfiles", "resolved_commands", "config_errors"],
+      "properties": {
+        "project_type": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "boolean"
+          }
+        },
+        "expected_lockfiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "resolved_commands": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["build_command", "test_command"],
+          "properties": {
+            "build_command": {
+              "type": "string"
+            },
+            "test_command": {
+              "type": "string"
+            }
+          }
+        },
+        "config_errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "replay_phase": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "workspace": {
+          "type": "string"
+        },
+        "configured_test_runs": {
+          "type": "integer",
+          "minimum": 2
+        },
+        "status": {
+          "type": "string",
+          "enum": ["passed", "failed"]
+        },
+        "build": {
+          "$ref": "#/$defs/command_result"
+        },
+        "test_runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/replay_test_run"
+          }
+        },
+        "test_run_1": {
+          "$ref": "#/$defs/replay_test_run"
+        },
+        "test_run_2": {
+          "$ref": "#/$defs/replay_test_run"
+        },
+        "test_min_env": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["command", "exit_code", "duration_sec", "workspace"],
+          "properties": {
+            "command": {
+              "type": "string"
+            },
+            "exit_code": {
+              "type": "integer"
+            },
+            "duration_sec": {
+              "type": "number",
+              "minimum": 0
+            },
+            "workspace": {
+              "type": "string"
+            }
+          }
+        },
+        "lockfile_drift": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["created", "changed", "deleted"],
+          "properties": {
+            "created": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "changed": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "deleted": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "replay_test_run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "cwd",
+        "exit_code",
+        "stdout",
+        "stderr",
+        "duration_sec",
+        "timed_out",
+        "stdout_hash",
+        "index"
+      ],
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "stdout": {
+          "type": "string"
+        },
+        "stderr": {
+          "type": "string"
+        },
+        "duration_sec": {
+          "type": "number",
+          "minimum": 0
+        },
+        "timed_out": {
+          "type": "boolean"
+        },
+        "stdout_hash": {
+          "type": "string"
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "command_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "command",
+        "cwd",
+        "exit_code",
+        "stdout",
+        "stderr",
+        "duration_sec",
+        "timed_out",
+        "stdout_hash"
+      ],
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "exit_code": {
+          "type": "integer"
+        },
+        "stdout": {
+          "type": "string"
+        },
+        "stderr": {
+          "type": "string"
+        },
+        "duration_sec": {
+          "type": "number",
+          "minimum": 0
+        },
+        "timed_out": {
+          "type": "boolean"
+        },
+        "stdout_hash": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}
