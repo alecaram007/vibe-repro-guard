@@ -1,6 +1,7 @@
 import json
 import os
 import platform
+import reproguard
 import subprocess
 import tempfile
 import textwrap
@@ -173,6 +174,7 @@ class ReproGuardTests(unittest.TestCase):
             self.assertEqual(proc.returncode, 20, proc.stderr + proc.stdout)
             issue_ids = {x["id"] for x in report["issues"]}
             self.assertIn("nondeterministic_test_exit", issue_ids)
+            self.assertNotIn("hidden_env_dependency", issue_ids)
 
     def test_secret_redaction_in_report(self):
         with tempfile.TemporaryDirectory(prefix="rg-redact-") as tmp:
@@ -204,6 +206,40 @@ class ReproGuardTests(unittest.TestCase):
             self.assertTrue(runs, "test runs missing")
             self.assertNotIn(secret_value, runs[0]["stdout"])
             self.assertIn("[REDACTED]", runs[0]["stdout"])
+
+    def test_scan_env_usage_detects_os_environ_get(self):
+        with tempfile.TemporaryDirectory(prefix="rg-env-scan-") as tmp:
+            root = Path(tmp)
+            write(
+                root / "app.py",
+                "import os\nvalue = os.environ.get('UNDECLARED_API_TOKEN')\nprint(value)\n",
+            )
+            referenced = reproguard.scan_env_usage(root)
+            self.assertIn("UNDECLARED_API_TOKEN", referenced)
+            self.assertIn("app.py", referenced["UNDECLARED_API_TOKEN"])
+
+    def test_env_not_declared_detected_for_os_environ_get(self):
+        with tempfile.TemporaryDirectory(prefix="rg-env-not-declared-") as tmp:
+            root = Path(tmp)
+            write(root / "requirements.txt", "# lock marker\n")
+            write(root / "tests.py", "print('ok')\n")
+            write(root / "app.py", "import os\n_ = os.environ.get('UNDECLARED_API_TOKEN')\n")
+            config = textwrap.dedent(
+                f"""
+                mode: advisory
+                score_threshold: 85
+                test_command: "python3 tests.py"
+                runtime:
+                  python: "{platform.python_version()}"
+                lockfiles:
+                  - requirements.txt
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc, report = run_guard(root)
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            issue_ids = {x["id"] for x in report["issues"]}
+            self.assertIn("env_not_declared", issue_ids)
 
     def test_lockfile_drift_detected(self):
         with tempfile.TemporaryDirectory(prefix="rg-lock-drift-") as tmp:
@@ -311,6 +347,99 @@ class ReproGuardTests(unittest.TestCase):
             self.assertEqual(proc.returncode, 30, proc.stderr + proc.stdout)
             issue_ids = {x["id"] for x in report["issues"]}
             self.assertIn("required_env_missing_values", issue_ids)
+
+    def test_required_env_empty_value_detected(self):
+        with tempfile.TemporaryDirectory(prefix="rg-required-env-empty-") as tmp:
+            root = Path(tmp)
+            write(root / "requirements.txt", "# lock marker\n")
+            write(root / "tests.py", "print('ok')\n")
+            config = textwrap.dedent(
+                f"""
+                mode: strict
+                score_threshold: 95
+                test_command: "python3 tests.py"
+                required_env:
+                  - MUST_EXIST_TOKEN
+                runtime:
+                  python: "{platform.python_version()}"
+                lockfiles:
+                  - requirements.txt
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc, report = run_guard(root, extra_env={"MUST_EXIST_TOKEN": ""})
+            self.assertEqual(proc.returncode, 30, proc.stderr + proc.stdout)
+            issue_ids = {x["id"] for x in report["issues"]}
+            self.assertIn("required_env_missing_values", issue_ids)
+
+    def test_lockfile_path_traversal_rejected(self):
+        with tempfile.TemporaryDirectory(prefix="rg-lock-traversal-") as tmp:
+            root = Path(tmp)
+            write(root / "tests.py", "print('ok')\n")
+            write(root.parent / "outside.lock", "x\n")
+            config = textwrap.dedent(
+                f"""
+                mode: strict
+                score_threshold: 95
+                test_command: "python3 tests.py"
+                runtime:
+                  python: "{platform.python_version()}"
+                lockfiles:
+                  - ../outside.lock
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc, report = run_guard(root)
+            self.assertEqual(proc.returncode, 40, proc.stderr + proc.stdout)
+            errors = report["phases"]["contract"]["config_errors"]
+            self.assertTrue(any("lockfiles entries must be relative paths" in msg for msg in errors))
+            issue_ids = {x["id"] for x in report["issues"]}
+            self.assertIn("config_invalid", issue_ids)
+
+    def test_lockfile_windows_style_paths_rejected(self):
+        with tempfile.TemporaryDirectory(prefix="rg-lock-windows-paths-") as tmp:
+            root = Path(tmp)
+            write(root / "tests.py", "print('ok')\n")
+            invalid_paths = [
+                "..\\outside.lock",
+                "C:\\temp\\outside.lock",
+                "\\\\server\\share\\outside.lock",
+            ]
+            for lock_value in invalid_paths:
+                with self.subTest(lock_value=lock_value):
+                    config = textwrap.dedent(
+                        f"""
+                        mode: strict
+                        score_threshold: 95
+                        test_command: "python3 tests.py"
+                        runtime:
+                          python: "{platform.python_version()}"
+                        lockfiles:
+                          - "{lock_value}"
+                        """
+                    ).strip()
+                    write(root / "reproguard.yaml", config + "\n")
+                    proc, report = run_guard(root)
+                    self.assertEqual(proc.returncode, 40, proc.stderr + proc.stdout)
+                    errors = report["phases"]["contract"]["config_errors"]
+                    self.assertTrue(any("lockfiles entries must be relative paths" in msg for msg in errors))
+                    issue_ids = {x["id"] for x in report["issues"]}
+                    self.assertIn("config_invalid", issue_ids)
+
+    def test_runtime_check_supports_version_from_stderr(self):
+        cfg = {"runtime": {"python": "3.9.6"}}
+        project_type = {"python": True, "node": False}
+        versions = {
+            "python": {
+                "exit_code": 0,
+                "stdout": "",
+                "stderr": "Python 3.9.6",
+            }
+        }
+        issues = []
+        reproguard.apply_runtime_checks(cfg, project_type, versions, issues)
+        issue_ids = {x["id"] for x in issues}
+        self.assertNotIn("runtime_drift_python", issue_ids)
 
 
 if __name__ == "__main__":

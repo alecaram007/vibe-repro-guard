@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Vibe Repro Guard v1.1
+Vibe Repro Guard v1.2.4
 
 Deterministic replay guardrail for AI-assisted coding projects.
 No external dependencies required (Python stdlib only).
@@ -61,6 +61,7 @@ ENV_REGEXES = [
     re.compile(r"\bprocess\.env\.([A-Z0-9_]+)\b"),
     re.compile(r"\bprocess\.env\[['\"]([A-Z0-9_]+)['\"]\]"),
     re.compile(r"\bos\.getenv\(['\"]([A-Z0-9_]+)['\"]"),
+    re.compile(r"\bos\.environ\.get\(\s*['\"]([A-Z0-9_]+)['\"]"),
     re.compile(r"\bos\.environ\[['\"]([A-Z0-9_]+)['\"]\]"),
 ]
 
@@ -216,6 +217,23 @@ def parse_simple_yaml(text: str) -> Dict[str, Any]:
     return root
 
 
+def is_safe_lockfile_path(value: str) -> bool:
+    raw = value.strip()
+    if not raw:
+        return False
+    normalized = raw.replace("\\", "/")
+    if re.match(r"^[A-Za-z]:/", normalized):
+        return False
+    if normalized.startswith("//"):
+        return False
+    candidate = Path(normalized)
+    if candidate.is_absolute():
+        return False
+    if any(part == ".." for part in normalized.split("/")):
+        return False
+    return True
+
+
 def load_config(config_path: Path) -> Tuple[Dict[str, Any], List[str]]:
     errors: List[str] = []
     cfg = dict(DEFAULT_CONFIG)
@@ -260,6 +278,8 @@ def load_config(config_path: Path) -> Tuple[Dict[str, Any], List[str]]:
 
     if not isinstance(cfg.get("lockfiles"), list) or not all(isinstance(x, str) for x in cfg["lockfiles"]):
         errors.append("lockfiles must be a list of strings")
+    elif any(not is_safe_lockfile_path(lock) for lock in cfg["lockfiles"]):
+        errors.append("lockfiles entries must be relative paths without '..' traversal")
 
     replay_runs = cfg.get("replay_runs")
     if not isinstance(replay_runs, int) or replay_runs < 2 or replay_runs > 10:
@@ -393,6 +413,19 @@ def is_semver_pinned(value: str) -> bool:
 
 def normalize_version(value: str) -> str:
     return value.strip().lstrip("vV")
+
+
+def extract_version_token(text: str) -> str:
+    value = text.strip()
+    if not value:
+        return ""
+    match = re.search(r"\b[vV]?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.\-]+)?)\b", value)
+    if match:
+        return normalize_version(match.group(1))
+    parts = value.split()
+    if not parts:
+        return ""
+    return normalize_version(parts[-1])
 
 
 def read_small_text(path: Path, max_bytes: int = 400_000) -> Optional[str]:
@@ -588,8 +621,14 @@ def apply_runtime_checks(
         detected_info = versions.get(key)
         if not detected_info or detected_info.get("exit_code") != 0:
             continue
-        detected_raw = (detected_info.get("stdout") or "").split()[-1]
-        detected = normalize_version(detected_raw)
+        detected_output = " ".join(
+            part.strip()
+            for part in [str(detected_info.get("stdout") or ""), str(detected_info.get("stderr") or "")]
+            if part and part.strip()
+        )
+        detected = extract_version_token(detected_output)
+        if not detected:
+            continue
         declared_norm = normalize_version(str(declared))
         if detected and declared_norm and detected != declared_norm:
             issues.append(
@@ -687,7 +726,13 @@ def apply_env_static_checks(
 def apply_required_env_presence_checks(cfg: Dict[str, Any], issues: List[Dict[str, Any]]) -> None:
     if not cfg.get("require_declared_env_values", True):
         return
-    missing = [name for name in cfg.get("required_env", []) if name and name not in os.environ]
+    missing = []
+    for name in cfg.get("required_env", []):
+        if not name:
+            continue
+        value = os.environ.get(name)
+        if value is None or value == "":
+            missing.append(name)
     if not missing:
         return
     issues.append(
@@ -696,7 +741,7 @@ def apply_required_env_presence_checks(cfg: Dict[str, Any], issues: List[Dict[st
             "Required environment values are not set",
             "high",
             "baseline",
-            "Missing required variables in current environment: " + ", ".join(missing[:20]),
+            "Missing or empty required variables in current environment: " + ", ".join(missing[:20]),
             "Export the missing variables before running deterministic replay.",
             20,
         )
@@ -1086,9 +1131,12 @@ def main() -> int:
                     )
 
                 minimized = minimal_env(cfg.get("required_env", []))
+                tmp_root_min_env = Path(tmp_dir) / "workspace-min-env"
+                tmp_root_min_env.mkdir(parents=True, exist_ok=True)
+                copy_workspace(root, tmp_root_min_env)
                 test_min_env = run_shell(
                     resolved_cmds["test_command"],
-                    cwd=tmp_root,
+                    cwd=tmp_root_min_env,
                     env=minimized,
                     timeout_sec=args.timeout_sec,
                 )
@@ -1096,6 +1144,7 @@ def main() -> int:
                     "command": test_min_env["command"],
                     "exit_code": test_min_env["exit_code"],
                     "duration_sec": test_min_env["duration_sec"],
+                    "workspace": str(tmp_root_min_env),
                 }
 
                 if first_run["exit_code"] == 0 and test_min_env["exit_code"] != 0:
