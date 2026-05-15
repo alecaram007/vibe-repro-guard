@@ -91,6 +91,85 @@ class ReproGuardTests(unittest.TestCase):
             issue_ids = {x["id"] for x in report["issues"]}
             self.assertIn("lockfile_missing", issue_ids)
 
+    def test_python_uv_lockfile_is_recognized_by_default_policy(self):
+        with tempfile.TemporaryDirectory(prefix="rg-uv-lock-") as tmp:
+            root = Path(tmp)
+            write(root / "pyproject.toml", "[project]\nname='demo'\nversion='0.1.0'\n")
+            write(root / "uv.lock", "version = 1\n")
+            write(root / "tests.py", "print('ok')\n")
+            config = textwrap.dedent(
+                f"""
+                mode: advisory
+                score_threshold: 95
+                test_command: "python3 tests.py"
+                runtime:
+                  python: "{platform.python_version()}"
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc, report = run_guard(root)
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            issue_ids = {x["id"] for x in report["issues"]}
+            self.assertNotIn("lockfile_missing", issue_ids)
+
+    def test_node_bun_lockfile_is_recognized_by_default_policy(self):
+        with tempfile.TemporaryDirectory(prefix="rg-bun-lock-") as tmp:
+            root = Path(tmp)
+            write(root / "package.json", '{"name":"demo","version":"1.0.0"}\n')
+            write(root / "bun.lockb", "lock\n")
+            write(root / "tests.py", "print('ok')\n")
+            config = textwrap.dedent(
+                """
+                mode: advisory
+                score_threshold: 95
+                test_command: "python3 tests.py"
+                runtime:
+                  node: "20.12.2"
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc, report = run_guard(root)
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            issue_ids = {x["id"] for x in report["issues"]}
+            self.assertNotIn("lockfile_missing", issue_ids)
+
+    def test_php_composer_lockfile_is_recognized_by_default_policy(self):
+        with tempfile.TemporaryDirectory(prefix="rg-composer-lock-") as tmp:
+            root = Path(tmp)
+            write(root / "composer.json", '{"name":"demo/project","require":{"php":"^8.2"}}\n')
+            write(root / "composer.lock", '{"_readme":["lock"]}\n')
+            write(root / "tests.py", "print('ok')\n")
+            config = textwrap.dedent(
+                """
+                mode: advisory
+                score_threshold: 95
+                test_command: "python3 tests.py"
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc, report = run_guard(root)
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            issue_ids = {x["id"] for x in report["issues"]}
+            self.assertNotIn("lockfile_missing", issue_ids)
+
+    def test_php_missing_composer_lockfile_detected_by_default_policy(self):
+        with tempfile.TemporaryDirectory(prefix="rg-composer-missing-") as tmp:
+            root = Path(tmp)
+            write(root / "composer.json", '{"name":"demo/project","require":{"php":"^8.2"}}\n')
+            write(root / "tests.py", "print('ok')\n")
+            config = textwrap.dedent(
+                """
+                mode: advisory
+                score_threshold: 95
+                test_command: "python3 tests.py"
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc, report = run_guard(root)
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            issue_ids = {x["id"] for x in report["issues"]}
+            self.assertIn("lockfile_missing", issue_ids)
+
     def test_runtime_drift_detected(self):
         with tempfile.TemporaryDirectory(prefix="rg-runtime-") as tmp:
             root = Path(tmp)
@@ -218,6 +297,46 @@ class ReproGuardTests(unittest.TestCase):
             self.assertIn("UNDECLARED_API_TOKEN", referenced)
             self.assertIn("app.py", referenced["UNDECLARED_API_TOKEN"])
 
+    def test_scan_env_usage_detects_process_env_optional_chain(self):
+        with tempfile.TemporaryDirectory(prefix="rg-env-optional-scan-") as tmp:
+            root = Path(tmp)
+            write(root / "app.js", "const token = process.env?.UNDECLARED_OPTIONAL_TOKEN || '';\n")
+            referenced = reproguard.scan_env_usage(root)
+            self.assertIn("UNDECLARED_OPTIONAL_TOKEN", referenced)
+            self.assertIn("app.js", referenced["UNDECLARED_OPTIONAL_TOKEN"])
+
+    def test_scan_env_usage_detects_lowercase_and_mixed_case_names(self):
+        with tempfile.TemporaryDirectory(prefix="rg-env-lowercase-scan-") as tmp:
+            root = Path(tmp)
+            write(
+                root / "app.js",
+                "const dbHost = process.env.db_host || process.env?.['Mixed_Case_Key'] || '';\n",
+            )
+            write(root / "app.py", "import os\nvalue = os.getenv('service_token')\nprint(value)\n")
+            referenced = reproguard.scan_env_usage(root)
+            self.assertIn("db_host", referenced)
+            self.assertIn("Mixed_Case_Key", referenced)
+            self.assertIn("service_token", referenced)
+            self.assertIn("app.js", referenced["db_host"])
+            self.assertIn("app.py", referenced["service_token"])
+
+    def test_scan_env_usage_detects_whitespace_variants(self):
+        with tempfile.TemporaryDirectory(prefix="rg-env-whitespace-scan-") as tmp:
+            root = Path(tmp)
+            write(
+                root / "app.js",
+                "const token = process.env ['SPACED_JS_TOKEN'] || process.env?. [ 'SPACED_OPTIONAL_TOKEN' ];\n",
+            )
+            write(
+                root / "app.py",
+                "import os\nvalue = os.getenv ('spaced_py_token') or os.environ [ 'spaced_environ_token' ]\n",
+            )
+            referenced = reproguard.scan_env_usage(root)
+            self.assertIn("SPACED_JS_TOKEN", referenced)
+            self.assertIn("SPACED_OPTIONAL_TOKEN", referenced)
+            self.assertIn("spaced_py_token", referenced)
+            self.assertIn("spaced_environ_token", referenced)
+
     def test_env_not_declared_detected_for_os_environ_get(self):
         with tempfile.TemporaryDirectory(prefix="rg-env-not-declared-") as tmp:
             root = Path(tmp)
@@ -240,6 +359,84 @@ class ReproGuardTests(unittest.TestCase):
             self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
             issue_ids = {x["id"] for x in report["issues"]}
             self.assertIn("env_not_declared", issue_ids)
+
+    def test_env_not_declared_detected_for_process_env_optional_chain(self):
+        with tempfile.TemporaryDirectory(prefix="rg-env-optional-not-declared-") as tmp:
+            root = Path(tmp)
+            write(root / "requirements.txt", "# lock marker\n")
+            write(root / "tests.py", "print('ok')\n")
+            write(root / "app.js", "const token = process.env?.UNDECLARED_OPTIONAL_TOKEN || '';\n")
+            config = textwrap.dedent(
+                f"""
+                mode: advisory
+                score_threshold: 85
+                test_command: "python3 tests.py"
+                runtime:
+                  python: "{platform.python_version()}"
+                lockfiles:
+                  - requirements.txt
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc, report = run_guard(root)
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            issue_ids = {x["id"] for x in report["issues"]}
+            self.assertIn("env_not_declared", issue_ids)
+
+    def test_env_not_declared_detected_for_lowercase_os_getenv(self):
+        with tempfile.TemporaryDirectory(prefix="rg-env-lowercase-not-declared-") as tmp:
+            root = Path(tmp)
+            write(root / "requirements.txt", "# lock marker\n")
+            write(root / "tests.py", "print('ok')\n")
+            write(root / "app.py", "import os\n_ = os.getenv('service_token')\n")
+            config = textwrap.dedent(
+                f"""
+                mode: advisory
+                score_threshold: 85
+                test_command: "python3 tests.py"
+                runtime:
+                  python: "{platform.python_version()}"
+                lockfiles:
+                  - requirements.txt
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc, report = run_guard(root)
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            issue_ids = {x["id"] for x in report["issues"]}
+            self.assertIn("env_not_declared", issue_ids)
+            issue_evidence = "\n".join(x["evidence"] for x in report["issues"])
+            self.assertIn("service_token", issue_evidence)
+
+    def test_env_not_declared_detected_for_whitespace_variants(self):
+        with tempfile.TemporaryDirectory(prefix="rg-env-whitespace-not-declared-") as tmp:
+            root = Path(tmp)
+            write(root / "requirements.txt", "# lock marker\n")
+            write(root / "tests.py", "print('ok')\n")
+            write(
+                root / "app.js",
+                "const token = process.env ['SPACED_JS_TOKEN'] || process.env?. [ 'SPACED_OPTIONAL_TOKEN' ];\n",
+            )
+            write(root / "app.py", "import os\n_ = os.getenv ('spaced_py_token')\n")
+            config = textwrap.dedent(
+                f"""
+                mode: advisory
+                score_threshold: 85
+                test_command: "python3 tests.py"
+                runtime:
+                  python: "{platform.python_version()}"
+                lockfiles:
+                  - requirements.txt
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc, report = run_guard(root)
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            issue_ids = {x["id"] for x in report["issues"]}
+            self.assertIn("env_not_declared", issue_ids)
+            issue_evidence = "\n".join(x["evidence"] for x in report["issues"])
+            self.assertIn("SPACED_JS_TOKEN", issue_evidence)
+            self.assertIn("spaced_py_token", issue_evidence)
 
     def test_lockfile_drift_detected(self):
         with tempfile.TemporaryDirectory(prefix="rg-lock-drift-") as tmp:

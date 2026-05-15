@@ -3,7 +3,6 @@
 ## v1.3
 - `--phase` execution mode (`baseline`, `contract`, `replay`, `report`).
 - Optional JSON schema export for report validation.
-- Additional lockfile heuristics (`uv.lock`, `bun.lockb`, `composer.lock`).
 
 ## v1.4
 - Flaky-test confidence scoring (per-run variance metrics).

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Vibe Repro Guard v1.2.4
+Vibe Repro Guard v1.2.9
 
 Deterministic replay guardrail for AI-assisted coding projects.
 No external dependencies required (Python stdlib only).
@@ -44,8 +44,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 
 CORE_ENV_KEYS = ["PATH", "HOME", "LANG", "LC_ALL", "TERM", "TMPDIR", "TEMP", "TMP"]
 
-DEFAULT_LOCKFILES_NODE = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock"]
-DEFAULT_LOCKFILES_PYTHON = ["requirements.txt", "poetry.lock", "Pipfile.lock"]
+DEFAULT_LOCKFILES_NODE = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb"]
+DEFAULT_LOCKFILES_PYTHON = ["requirements.txt", "poetry.lock", "Pipfile.lock", "uv.lock"]
+DEFAULT_LOCKFILES_PHP = ["composer.lock"]
 
 NONDET_REGEXES = [
     (re.compile(r"\bDate\.now\s*\("), "JS Date.now"),
@@ -58,11 +59,13 @@ NONDET_REGEXES = [
 ]
 
 ENV_REGEXES = [
-    re.compile(r"\bprocess\.env\.([A-Z0-9_]+)\b"),
-    re.compile(r"\bprocess\.env\[['\"]([A-Z0-9_]+)['\"]\]"),
-    re.compile(r"\bos\.getenv\(['\"]([A-Z0-9_]+)['\"]"),
-    re.compile(r"\bos\.environ\.get\(\s*['\"]([A-Z0-9_]+)['\"]"),
-    re.compile(r"\bos\.environ\[['\"]([A-Z0-9_]+)['\"]\]"),
+    re.compile(r"\bprocess\.env\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)\b"),
+    re.compile(r"\bprocess\.env\s*\[\s*['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]\s*\]"),
+    re.compile(r"\bprocess\.env\?\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)\b"),
+    re.compile(r"\bprocess\.env\?\s*\.\s*\[\s*['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]\s*\]"),
+    re.compile(r"\bos\.getenv\s*\(\s*['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]"),
+    re.compile(r"\bos\.environ\s*\.\s*get\s*\(\s*['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]"),
+    re.compile(r"\bos\.environ\s*\[\s*['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]\s*\]"),
 ]
 
 ENV_EXEMPT = {
@@ -374,6 +377,7 @@ def detect_project_type(root: Path) -> Dict[str, bool]:
     return {
         "node": (root / "package.json").exists(),
         "python": any((root / p).exists() for p in ("pyproject.toml", "requirements.txt", "setup.py")),
+        "php": (root / "composer.json").exists(),
     }
 
 
@@ -508,6 +512,8 @@ def determine_expected_lockfiles(project_type: Dict[str, bool], config_lockfiles
         expected.extend(DEFAULT_LOCKFILES_NODE)
     if project_type["python"]:
         expected.extend(DEFAULT_LOCKFILES_PYTHON)
+    if project_type.get("php"):
+        expected.extend(DEFAULT_LOCKFILES_PHP)
     return expected, False
 
 

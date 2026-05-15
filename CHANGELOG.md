@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.2.9 - 2026-05-15
+- Fixed env usage scanning to detect syntax variants with whitespace, including:
+  - `process.env ['VAR']`
+  - `process.env?. [ 'VAR' ]`
+  - `os.getenv ('var')`
+  - `os.environ [ 'var' ]`
+- Added regression coverage for whitespace-based env scanning and `env_not_declared` detection flow.
+
+## 1.2.8 - 2026-05-15
+- Fixed env usage scanning to detect lowercase and mixed-case variable names in:
+  - `process.env.name`
+  - `process.env?.['name']`
+  - `os.getenv('name')`
+  - `os.environ.get('name')`
+  - `os.environ['name']`
+- Added regression coverage for lowercase/mixed-case env scanning and `env_not_declared` detection flow.
+
+## 1.2.7 - 2026-05-15
+- Fixed env usage scanning to detect JavaScript optional chaining patterns:
+  - `process.env?.VAR`
+  - `process.env?.["VAR"]`
+- Added regression coverage for optional-chaining env detection in both scanner and end-to-end guard flow.
+
+## 1.2.6 - 2026-05-15
+- Added PHP project detection via `composer.json` for default lockfile inference.
+- Added default lockfile heuristic for PHP projects (`composer.lock`), reducing false-positive `lockfile_not_declared`.
+- Added regression coverage for Composer lockfile inferred-present and inferred-missing scenarios.
+
+## 1.2.5 - 2026-05-15
+- Fixed false-positive `lockfile_missing` for Python projects that use `uv.lock` as the only lockfile.
+- Fixed false-positive `lockfile_missing` for Node projects that use `bun.lockb` as the lockfile.
+- Added regression coverage for both default-lockfile inference cases.
+
 ## 1.2.4 - 2026-05-15
 - Fixed lockfile path validation to reject Windows-style traversal (`..\\...`) and absolute paths (`C:\\...`, UNC `\\\\...`) across platforms.
 - Added regression coverage for unsafe Windows-style lockfile path entries.
