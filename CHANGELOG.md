@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.11 - 2026-05-15
+- Fixed a zero-test replay gap where valid empty-suite outputs were not recognized in some runners.
+- Expanded `test_runs_zero` output detection patterns to cover:
+  - `pytest` summaries (`no tests ran`, `no tests collected`)
+  - `vitest` empty-suite output (`No test files found`)
+  - `mocha` empty-suite output (`0 passing`)
+- Added regression coverage for all new zero-test signal patterns.
+
 ## 1.2.10 - 2026-05-15
 - Fixed a false-positive replay pass when the test command executed zero tests (e.g. `Ran 0 tests`, `collected 0 items`).
 - Added a new replay issue: `test_runs_zero` (high severity) that fails replay for empty suites.

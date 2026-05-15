@@ -550,6 +550,33 @@ class ReproGuardTests(unittest.TestCase):
         )
         self.assertEqual(signal, "python-pytest")
 
+    def test_zero_test_signal_detector_supports_pytest_no_tests_ran_summary(self):
+        signal = reproguard.detect_zero_test_signal(
+            {
+                "stdout": "========================= no tests ran in 0.10s =========================\n",
+                "stderr": "",
+            }
+        )
+        self.assertEqual(signal, "python-pytest")
+
+    def test_zero_test_signal_detector_supports_vitest_no_files_output(self):
+        signal = reproguard.detect_zero_test_signal(
+            {
+                "stdout": "",
+                "stderr": "No test files found, exiting with code 0\n",
+            }
+        )
+        self.assertEqual(signal, "vitest")
+
+    def test_zero_test_signal_detector_supports_mocha_zero_passing_output(self):
+        signal = reproguard.detect_zero_test_signal(
+            {
+                "stdout": "  0 passing (6ms)\n",
+                "stderr": "",
+            }
+        )
+        self.assertEqual(signal, "mocha")
+
     def test_required_env_missing_values_detected(self):
         with tempfile.TemporaryDirectory(prefix="rg-required-env-") as tmp:
             root = Path(tmp)

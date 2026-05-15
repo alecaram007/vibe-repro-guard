@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Vibe Repro Guard v1.2.10
+Vibe Repro Guard v1.2.11
 
 Deterministic replay guardrail for AI-assisted coding projects.
 No external dependencies required (Python stdlib only).
@@ -110,7 +110,11 @@ MAX_OUTPUT_CHARS = 12000
 ZERO_TEST_OUTPUT_PATTERNS = [
     ("python-unittest", re.compile(r"\bRan\s+0\s+tests\b", re.IGNORECASE)),
     ("python-pytest", re.compile(r"\bcollected\s+0\s+items\b", re.IGNORECASE)),
+    ("python-pytest", re.compile(r"\bno tests ran\b", re.IGNORECASE)),
+    ("python-pytest", re.compile(r"\bno tests collected\b", re.IGNORECASE)),
     ("jest", re.compile(r"\bNo tests found\b", re.IGNORECASE)),
+    ("vitest", re.compile(r"\bNo test files found\b", re.IGNORECASE)),
+    ("mocha", re.compile(r"\b0\s+passing\b", re.IGNORECASE)),
 ]
 
 
