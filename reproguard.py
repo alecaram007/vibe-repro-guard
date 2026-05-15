@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Vibe Repro Guard v1.2.9
+Vibe Repro Guard v1.2.10
 
 Deterministic replay guardrail for AI-assisted coding projects.
 No external dependencies required (Python stdlib only).
@@ -106,6 +106,12 @@ IGNORE_NAMES = {
 DEFAULT_REDACTION_PATTERNS = ["TOKEN", "SECRET", "PASSWORD", "API_KEY", "PRIVATE_KEY"]
 
 MAX_OUTPUT_CHARS = 12000
+
+ZERO_TEST_OUTPUT_PATTERNS = [
+    ("python-unittest", re.compile(r"\bRan\s+0\s+tests\b", re.IGNORECASE)),
+    ("python-pytest", re.compile(r"\bcollected\s+0\s+items\b", re.IGNORECASE)),
+    ("jest", re.compile(r"\bNo tests found\b", re.IGNORECASE)),
+]
 
 
 class ConfigError(Exception):
@@ -850,6 +856,19 @@ def truncate_output(text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
     return text[:limit] + f"\n[reproguard] output truncated ({remaining} chars omitted)"
 
 
+def detect_zero_test_signal(run_result: Dict[str, Any]) -> str:
+    combined = "\n".join(
+        [
+            str(run_result.get("stdout") or ""),
+            str(run_result.get("stderr") or ""),
+        ]
+    )
+    for label, pattern in ZERO_TEST_OUTPUT_PATTERNS:
+        if pattern.search(combined):
+            return label
+    return ""
+
+
 def build_redaction_secrets(cfg: Dict[str, Any]) -> List[str]:
     patterns = [x.upper() for x in (cfg.get("redact_env_patterns") or []) if isinstance(x, str)]
     if not patterns:
@@ -1104,6 +1123,21 @@ def main() -> int:
                             20,
                         )
                     )
+                else:
+                    zero_test_signal = detect_zero_test_signal(first_run)
+                    if zero_test_signal:
+                        replay_failed = True
+                        issues.append(
+                            issue(
+                                "test_runs_zero",
+                                "Test command executed zero tests",
+                                "high",
+                                "replay",
+                                f"Replay run completed but no tests were executed ({zero_test_signal}).",
+                                "Update test_command to run the real suite and fail when zero tests are collected.",
+                                20,
+                            )
+                        )
 
                 exit_codes = {x["exit_code"] for x in test_runs}
                 output_hashes = {x["stdout_hash"] for x in test_runs}

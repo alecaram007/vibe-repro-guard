@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.10 - 2026-05-15
+- Fixed a false-positive replay pass when the test command executed zero tests (e.g. `Ran 0 tests`, `collected 0 items`).
+- Added a new replay issue: `test_runs_zero` (high severity) that fails replay for empty suites.
+- Added regression coverage for end-to-end zero-test detection and pytest-style zero-collection signals.
+
 ## 1.2.9 - 2026-05-15
 - Fixed env usage scanning to detect syntax variants with whitespace, including:
   - `process.env ['VAR']`

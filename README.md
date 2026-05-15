@@ -17,6 +17,7 @@ Vibe Repro Guard turns each coding task into:
 - Repro contract generation from `reproguard.yaml`.
 - Fresh-workspace replay for build and test commands.
 - Multi-run determinism checks (`replay_runs`) for exit and output stability.
+- Zero-test execution detection to prevent false replay passes.
 - Hidden environment dependency detection.
 - Lockfile drift detection (created/changed/deleted during replay).
 - Secret redaction in stored logs (`[REDACTED]`).

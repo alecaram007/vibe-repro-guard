@@ -521,6 +521,35 @@ class ReproGuardTests(unittest.TestCase):
             self.assertTrue((outdir / "reproguard.contract.json").exists())
             self.assertTrue((outdir / "reproguard.report.md").exists())
 
+    def test_default_python_discovery_with_zero_tests_is_reported(self):
+        with tempfile.TemporaryDirectory(prefix="rg-zero-tests-") as tmp:
+            root = Path(tmp)
+            write(root / "requirements.txt", "# lock marker\n")
+            config = textwrap.dedent(
+                f"""
+                mode: advisory
+                score_threshold: 85
+                runtime:
+                  python: "{platform.python_version()}"
+                lockfiles:
+                  - requirements.txt
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc, report = run_guard(root)
+            self.assertEqual(proc.returncode, 20, proc.stderr + proc.stdout)
+            issue_ids = {x["id"] for x in report["issues"]}
+            self.assertIn("test_runs_zero", issue_ids)
+
+    def test_zero_test_signal_detector_supports_pytest_output(self):
+        signal = reproguard.detect_zero_test_signal(
+            {
+                "stdout": "================== test session starts ==================\ncollected 0 items\n",
+                "stderr": "",
+            }
+        )
+        self.assertEqual(signal, "python-pytest")
+
     def test_required_env_missing_values_detected(self):
         with tempfile.TemporaryDirectory(prefix="rg-required-env-") as tmp:
             root = Path(tmp)
