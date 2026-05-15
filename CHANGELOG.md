@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.12 - 2026-05-15
+- Added a ready-to-run Node.js fixture at `examples/node-basic` for onboarding and reproducibility demos.
+- Documented fixture usage in the main README under a new `Examples` section.
+- Verified fixture with a real guard execution (`replay=passed`, exit code `0`).
+
 ## 1.2.11 - 2026-05-15
 - Fixed a zero-test replay gap where valid empty-suite outputs were not recognized in some runners.
 - Expanded `test_runs_zero` output detection patterns to cover:
