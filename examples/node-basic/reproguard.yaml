@@ -1,0 +1,8 @@
+mode: advisory
+score_threshold: 85
+replay_runs: 2
+test_command: "npm test --silent"
+runtime:
+  node: "24.11.0"
+lockfiles:
+  - package-lock.json

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Vibe Repro Guard v1.1
+Vibe Repro Guard v1.4.1
 
 Deterministic replay guardrail for AI-assisted coding projects.
 No external dependencies required (Python stdlib only).
@@ -44,8 +44,21 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 
 CORE_ENV_KEYS = ["PATH", "HOME", "LANG", "LC_ALL", "TERM", "TMPDIR", "TEMP", "TMP"]
 
-DEFAULT_LOCKFILES_NODE = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock"]
-DEFAULT_LOCKFILES_PYTHON = ["requirements.txt", "poetry.lock", "Pipfile.lock"]
+DEFAULT_LOCKFILES_NODE = ["package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lockb"]
+DEFAULT_LOCKFILES_PYTHON = ["requirements.txt", "poetry.lock", "Pipfile.lock", "uv.lock"]
+DEFAULT_LOCKFILES_PHP = ["composer.lock"]
+DEFAULT_LOCKFILES_RUST = ["Cargo.lock"]
+DEFAULT_LOCKFILES_GO = ["go.sum"]
+DEFAULT_LOCKFILES_RUBY = ["Gemfile.lock"]
+
+RUNTIME_VERSION_KEYS = {
+    "python": "python",
+    "node": "node",
+    "rust": "rustc",
+    "go": "go",
+    "ruby": "ruby",
+    "php": "php",
+}
 
 NONDET_REGEXES = [
     (re.compile(r"\bDate\.now\s*\("), "JS Date.now"),
@@ -55,13 +68,26 @@ NONDET_REGEXES = [
     (re.compile(r"\bdatetime\.now\s*\("), "Python datetime.now"),
     (re.compile(r"\btime\.time\s*\("), "Python time.time"),
     (re.compile(r"\brandom\."), "Python random module"),
+    (re.compile(r"\btime\.Now\s*\("), "Go time.Now"),
+    (re.compile(r"\brand\.(?:Int|Float|New|Read|Intn)\b"), "Go math/rand"),
+    (re.compile(r"\bSystemTime::now\b"), "Rust SystemTime::now"),
+    (re.compile(r"\brand::(?:random|thread_rng)\b"), "Rust rand crate"),
+    (re.compile(r"\bTime\.(?:now|new)\b"), "Ruby Time"),
+    (re.compile(r"\bSecureRandom\."), "Ruby SecureRandom"),
 ]
 
 ENV_REGEXES = [
-    re.compile(r"\bprocess\.env\.([A-Z0-9_]+)\b"),
-    re.compile(r"\bprocess\.env\[['\"]([A-Z0-9_]+)['\"]\]"),
-    re.compile(r"\bos\.getenv\(['\"]([A-Z0-9_]+)['\"]"),
-    re.compile(r"\bos\.environ\[['\"]([A-Z0-9_]+)['\"]\]"),
+    re.compile(r"\bprocess\.env\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)\b"),
+    re.compile(r"\bprocess\.env\s*\[\s*['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]\s*\]"),
+    re.compile(r"\bprocess\.env\?\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)\b"),
+    re.compile(r"\bprocess\.env\?\s*\.\s*\[\s*['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]\s*\]"),
+    re.compile(r"\bos\.getenv\s*\(\s*['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]"),
+    re.compile(r"\bos\.environ\s*\.\s*get\s*\(\s*['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]"),
+    re.compile(r"\bos\.environ\s*\[\s*['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]\s*\]"),
+    re.compile(r"\bos\.Getenv\s*\(\s*\"([A-Za-z_][A-Za-z0-9_]*)\""),
+    re.compile(r"\b(?:std::)?env::var\s*\(\s*['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]"),
+    re.compile(r"\bENV\s*\[\s*['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]\s*\]"),
+    re.compile(r"\bENV\.fetch\s*\(\s*['\"]([A-Za-z_][A-Za-z0-9_]*)['\"]"),
 ]
 
 ENV_EXEMPT = {
@@ -102,6 +128,21 @@ IGNORE_NAMES = {
 DEFAULT_REDACTION_PATTERNS = ["TOKEN", "SECRET", "PASSWORD", "API_KEY", "PRIVATE_KEY"]
 
 MAX_OUTPUT_CHARS = 12000
+
+ZERO_TEST_OUTPUT_PATTERNS = [
+    ("python-unittest", re.compile(r"\bRan\s+0\s+tests\b", re.IGNORECASE)),
+    ("python-pytest", re.compile(r"\bcollected\s+0\s+items\b", re.IGNORECASE)),
+    ("python-pytest", re.compile(r"\bno tests ran\b", re.IGNORECASE)),
+    ("python-pytest", re.compile(r"\bno tests collected\b", re.IGNORECASE)),
+    ("jest", re.compile(r"\bNo tests found\b", re.IGNORECASE)),
+    ("vitest", re.compile(r"\bNo test files found\b", re.IGNORECASE)),
+    ("mocha", re.compile(r"\b0\s+passing\b", re.IGNORECASE)),
+    ("go-test", re.compile(r"\bno test files\b", re.IGNORECASE)),
+    ("go-test", re.compile(r"\bno tests to run\b", re.IGNORECASE)),
+    ("cargo-test", re.compile(r"\brunning\s+0\s+tests\b", re.IGNORECASE)),
+    ("rspec", re.compile(r"\b0\s+examples,\s+0\s+failures\b", re.IGNORECASE)),
+    ("phpunit", re.compile(r"\bNo tests executed\b", re.IGNORECASE)),
+]
 
 
 class ConfigError(Exception):
@@ -216,6 +257,23 @@ def parse_simple_yaml(text: str) -> Dict[str, Any]:
     return root
 
 
+def is_safe_lockfile_path(value: str) -> bool:
+    raw = value.strip()
+    if not raw:
+        return False
+    normalized = raw.replace("\\", "/")
+    if re.match(r"^[A-Za-z]:/", normalized):
+        return False
+    if normalized.startswith("//"):
+        return False
+    candidate = Path(normalized)
+    if candidate.is_absolute():
+        return False
+    if any(part == ".." for part in normalized.split("/")):
+        return False
+    return True
+
+
 def load_config(config_path: Path) -> Tuple[Dict[str, Any], List[str]]:
     errors: List[str] = []
     cfg = dict(DEFAULT_CONFIG)
@@ -260,6 +318,8 @@ def load_config(config_path: Path) -> Tuple[Dict[str, Any], List[str]]:
 
     if not isinstance(cfg.get("lockfiles"), list) or not all(isinstance(x, str) for x in cfg["lockfiles"]):
         errors.append("lockfiles must be a list of strings")
+    elif any(not is_safe_lockfile_path(lock) for lock in cfg["lockfiles"]):
+        errors.append("lockfiles entries must be relative paths without '..' traversal")
 
     replay_runs = cfg.get("replay_runs")
     if not isinstance(replay_runs, int) or replay_runs < 2 or replay_runs > 10:
@@ -354,6 +414,10 @@ def detect_project_type(root: Path) -> Dict[str, bool]:
     return {
         "node": (root / "package.json").exists(),
         "python": any((root / p).exists() for p in ("pyproject.toml", "requirements.txt", "setup.py")),
+        "php": (root / "composer.json").exists(),
+        "rust": (root / "Cargo.toml").exists(),
+        "go": (root / "go.mod").exists(),
+        "ruby": (root / "Gemfile").exists(),
     }
 
 
@@ -365,6 +429,10 @@ def detect_versions() -> Dict[str, Any]:
         "npm": run_capture(["npm", "--version"]),
         "pnpm": run_capture(["pnpm", "--version"]),
         "yarn": run_capture(["yarn", "--version"]),
+        "rustc": run_capture(["rustc", "--version"]),
+        "go": run_capture(["go", "version"]),
+        "ruby": run_capture(["ruby", "--version"]),
+        "php": run_capture(["php", "--version"]),
     }
     return versions
 
@@ -395,6 +463,19 @@ def normalize_version(value: str) -> str:
     return value.strip().lstrip("vV")
 
 
+def extract_version_token(text: str) -> str:
+    value = text.strip()
+    if not value:
+        return ""
+    match = re.search(r"\b[vV]?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.\-]+)?)\b", value)
+    if match:
+        return normalize_version(match.group(1))
+    parts = value.split()
+    if not parts:
+        return ""
+    return normalize_version(parts[-1])
+
+
 def read_small_text(path: Path, max_bytes: int = 400_000) -> Optional[str]:
     try:
         if path.stat().st_size > max_bytes:
@@ -411,7 +492,7 @@ def scan_source_files(root: Path) -> List[Path]:
             continue
         if any(part in IGNORE_NAMES for part in path.parts):
             continue
-        if path.suffix.lower() in {".py", ".js", ".ts", ".tsx", ".jsx", ".mjs", ".cjs"}:
+        if path.suffix.lower() in {".py", ".js", ".ts", ".tsx", ".jsx", ".mjs", ".cjs", ".rs", ".go", ".rb"}:
             files.append(path)
     return files
 
@@ -431,15 +512,21 @@ def scan_env_usage(root: Path) -> Dict[str, Any]:
 
 def is_test_file(path: Path) -> bool:
     p = path.as_posix().lower()
-    return (
-        "/test" in p
-        or "/tests" in p
-        or "__tests__" in p
-        or path.name.lower().startswith("test")
-        or path.name.lower().endswith("_test.py")
-        or path.name.lower().endswith(".test.js")
-        or path.name.lower().endswith(".spec.js")
+    name = path.name.lower()
+    if "/test" in p or "/tests" in p or "__tests__" in p or "/spec/" in p:
+        return True
+    if name.startswith("test"):
+        return True
+    js_test_suffixes = (
+        ".test.js", ".spec.js", ".test.jsx", ".spec.jsx",
+        ".test.ts", ".spec.ts", ".test.tsx", ".spec.tsx",
+        ".test.mjs", ".spec.mjs", ".test.cjs", ".spec.cjs",
     )
+    if name.endswith(js_test_suffixes):
+        return True
+    if name.endswith("_test.py") or name.endswith("_test.go") or name.endswith("_spec.rb"):
+        return True
+    return False
 
 
 def scan_nondeterminism(root: Path) -> List[Dict[str, Any]]:
@@ -475,6 +562,14 @@ def determine_expected_lockfiles(project_type: Dict[str, bool], config_lockfiles
         expected.extend(DEFAULT_LOCKFILES_NODE)
     if project_type["python"]:
         expected.extend(DEFAULT_LOCKFILES_PYTHON)
+    if project_type.get("php"):
+        expected.extend(DEFAULT_LOCKFILES_PHP)
+    if project_type.get("rust"):
+        expected.extend(DEFAULT_LOCKFILES_RUST)
+    if project_type.get("go"):
+        expected.extend(DEFAULT_LOCKFILES_GO)
+    if project_type.get("ruby"):
+        expected.extend(DEFAULT_LOCKFILES_RUBY)
     return expected, False
 
 
@@ -488,6 +583,136 @@ def resolve_default_commands(config: Dict[str, Any], project_type: Dict[str, boo
         elif project_type["python"]:
             test_cmd = "python3 -m unittest discover"
     return {"build_command": build_cmd, "test_command": test_cmd}
+
+
+def infer_init_commands(project_type: Dict[str, bool], root: Path) -> Tuple[str, str]:
+    if project_type.get("node"):
+        pkg = read_small_text(root / "package.json") or ""
+        if '"build"' in pkg:
+            return ("npm run build", "npm test")
+        return ("", "npm test")
+    if project_type.get("rust"):
+        return ("cargo build --release", "cargo test")
+    if project_type.get("go"):
+        return ("go build ./...", "go test ./...")
+    if project_type.get("ruby"):
+        return ("", "bundle exec rspec")
+    if project_type.get("php"):
+        return ("", "vendor/bin/phpunit")
+    if project_type.get("python"):
+        pyproject = read_small_text(root / "pyproject.toml") or ""
+        if "pytest" in pyproject:
+            return ("python3 -m compileall .", "pytest")
+        return ("python3 -m compileall .", "python3 -m unittest discover")
+    return ("", "")
+
+
+def detect_local_runtimes(project_type: Dict[str, bool], versions: Dict[str, Any]) -> Dict[str, str]:
+    runtime: Dict[str, str] = {}
+    for config_key, version_key in RUNTIME_VERSION_KEYS.items():
+        if not project_type.get(config_key):
+            continue
+        info = versions.get(version_key)
+        if not info or info.get("exit_code") != 0:
+            continue
+        combined = " ".join(
+            part.strip()
+            for part in [str(info.get("stdout") or ""), str(info.get("stderr") or "")]
+            if part and part.strip()
+        )
+        token = extract_version_token(combined)
+        if token:
+            runtime[config_key] = token
+    return runtime
+
+
+def suggest_required_env(referenced: Dict[str, List[str]], limit: int = 10) -> List[str]:
+    candidates = sorted(name for name in referenced if name not in ENV_EXEMPT)
+    return candidates[:limit]
+
+
+def render_init_config(
+    project_type: Dict[str, bool],
+    runtime: Dict[str, str],
+    build_cmd: str,
+    test_cmd: str,
+    required_env: List[str],
+    present_lockfiles: List[str],
+) -> str:
+    types_active = [k for k, v in project_type.items() if v] or ["unknown"]
+    lines: List[str] = []
+    lines.append(f"# Auto-generated by 'reproguard init'. Detected: {', '.join(types_active)}")
+    lines.append("# Edit anything below to match your workflow; comments are preserved on re-init only with --force.")
+    lines.append("mode: advisory")
+    lines.append("score_threshold: 85")
+    lines.append("replay_runs: 3")
+    lines.append("fail_on_lockfile_drift: true")
+    lines.append("require_declared_env_values: true")
+    lines.append(f'build_command: "{build_cmd}"')
+    lines.append(f'test_command: "{test_cmd}"')
+    if required_env:
+        lines.append("required_env:")
+        for name in required_env:
+            lines.append(f"  - {name}")
+    lines.append("redact_env_patterns:")
+    for pattern in ("TOKEN", "SECRET", "PASSWORD", "API_KEY", "PRIVATE_KEY"):
+        lines.append(f"  - {pattern}")
+    if runtime:
+        lines.append("runtime:")
+        for key, value in runtime.items():
+            lines.append(f'  {key}: "{value}"')
+    if present_lockfiles:
+        lines.append("lockfiles:")
+        for lock in present_lockfiles:
+            lines.append(f"  - {lock}")
+    return "\n".join(lines) + "\n"
+
+
+def run_init(argv: List[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="reproguard init",
+        description="Scan the project and generate a reproguard.yaml tuned to it.",
+    )
+    parser.add_argument("--project-root", default=".", help="Project root to scan")
+    parser.add_argument("--config", default="reproguard.yaml", help="Output config path (relative to project root)")
+    parser.add_argument("--force", action="store_true", help="Overwrite existing config")
+    args = parser.parse_args(argv)
+
+    root = Path(args.project_root).resolve()
+    if not root.exists() or not root.is_dir():
+        print(f"[reproguard init] project root not found: {root}")
+        return 41
+
+    config_path = (root / args.config).resolve()
+    if config_path.exists() and not args.force:
+        print(f"[reproguard init] {config_path} already exists. Re-run with --force to overwrite.")
+        return 41
+
+    project_type = detect_project_type(root)
+    versions = detect_versions()
+    build_cmd, test_cmd = infer_init_commands(project_type, root)
+    runtime = detect_local_runtimes(project_type, versions)
+    referenced = scan_env_usage(root)
+    required_env = suggest_required_env(referenced)
+    expected_lockfiles, _ = determine_expected_lockfiles(project_type, [])
+    present_lockfiles = [lock for lock in expected_lockfiles if (root / lock).exists()]
+
+    config_path.write_text(
+        render_init_config(project_type, runtime, build_cmd, test_cmd, required_env, present_lockfiles),
+        encoding="utf-8",
+    )
+
+    types_active = [k for k, v in project_type.items() if v] or ["none"]
+    print(f"[reproguard init] wrote {config_path}")
+    print(f"[reproguard init] detected: {', '.join(types_active)}")
+    if runtime:
+        print(f"[reproguard init] runtime: {', '.join(f'{k}={v}' for k, v in runtime.items())}")
+    if present_lockfiles:
+        print(f"[reproguard init] lockfiles: {', '.join(present_lockfiles)}")
+    if required_env:
+        print(f"[reproguard init] suggested required_env: {', '.join(required_env)}")
+    print("[reproguard init] next: run 'reproguard' (or './reproguard.sh') to start the guard")
+    return 0
 
 
 def copy_workspace(src: Path, dst: Path) -> None:
@@ -585,11 +810,17 @@ def apply_runtime_checks(
                     20,
                 )
             )
-        detected_info = versions.get(key)
+        detected_info = versions.get(RUNTIME_VERSION_KEYS.get(key, key))
         if not detected_info or detected_info.get("exit_code") != 0:
             continue
-        detected_raw = (detected_info.get("stdout") or "").split()[-1]
-        detected = normalize_version(detected_raw)
+        detected_output = " ".join(
+            part.strip()
+            for part in [str(detected_info.get("stdout") or ""), str(detected_info.get("stderr") or "")]
+            if part and part.strip()
+        )
+        detected = extract_version_token(detected_output)
+        if not detected:
+            continue
         declared_norm = normalize_version(str(declared))
         if detected and declared_norm and detected != declared_norm:
             issues.append(
@@ -687,7 +918,13 @@ def apply_env_static_checks(
 def apply_required_env_presence_checks(cfg: Dict[str, Any], issues: List[Dict[str, Any]]) -> None:
     if not cfg.get("require_declared_env_values", True):
         return
-    missing = [name for name in cfg.get("required_env", []) if name and name not in os.environ]
+    missing = []
+    for name in cfg.get("required_env", []):
+        if not name:
+            continue
+        value = os.environ.get(name)
+        if value is None or value == "":
+            missing.append(name)
     if not missing:
         return
     issues.append(
@@ -696,7 +933,7 @@ def apply_required_env_presence_checks(cfg: Dict[str, Any], issues: List[Dict[st
             "Required environment values are not set",
             "high",
             "baseline",
-            "Missing required variables in current environment: " + ", ".join(missing[:20]),
+            "Missing or empty required variables in current environment: " + ", ".join(missing[:20]),
             "Export the missing variables before running deterministic replay.",
             20,
         )
@@ -799,6 +1036,19 @@ def truncate_output(text: str, limit: int = MAX_OUTPUT_CHARS) -> str:
     return text[:limit] + f"\n[reproguard] output truncated ({remaining} chars omitted)"
 
 
+def detect_zero_test_signal(run_result: Dict[str, Any]) -> str:
+    combined = "\n".join(
+        [
+            str(run_result.get("stdout") or ""),
+            str(run_result.get("stderr") or ""),
+        ]
+    )
+    for label, pattern in ZERO_TEST_OUTPUT_PATTERNS:
+        if pattern.search(combined):
+            return label
+    return ""
+
+
 def build_redaction_secrets(cfg: Dict[str, Any]) -> List[str]:
     patterns = [x.upper() for x in (cfg.get("redact_env_patterns") or []) if isinstance(x, str)]
     if not patterns:
@@ -849,6 +1099,12 @@ def render_markdown(report: Dict[str, Any]) -> str:
     lines.append(f"- Score: **{summary['score']} / 100** (threshold: {summary['score_threshold']})")
     lines.append(f"- Replay status: `{summary['replay_status']}`")
     lines.append(f"- Exit code: `{summary['exit_code']}`")
+    totals = summary.get("issue_totals", {})
+    lines.append(
+        f"- Issue totals: critical={totals.get('critical', 0)}, "
+        f"high={totals.get('high', 0)}, medium={totals.get('medium', 0)}, "
+        f"low={totals.get('low', 0)}"
+    )
     lines.append("")
     lines.append("## Issues")
     if report["issues"]:
@@ -891,7 +1147,12 @@ def write_report_markdown(path: Path, report: Dict[str, Any]) -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Vibe Repro Guard")
+    if len(sys.argv) > 1 and sys.argv[1] == "init":
+        return run_init(sys.argv[2:])
+
+    parser = argparse.ArgumentParser(
+        description="Vibe Repro Guard (run 'reproguard init' to auto-generate a config)"
+    )
     parser.add_argument("--project-root", default=".", help="Project root path")
     parser.add_argument("--config", default="reproguard.yaml", help="Config file path (relative to project root)")
     parser.add_argument("--output-dir", default="", help="Directory for artifacts (default: project root)")
@@ -904,7 +1165,7 @@ def main() -> int:
     output_dir = Path(args.output_dir).resolve() if args.output_dir else root
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    started_at = dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    started_at = dt.datetime.now(dt.timezone.utc).replace(microsecond=0, tzinfo=None).isoformat() + "Z"
     git_state = detect_git_state(root)
     baseline = {
         "timestamp_utc": started_at,
@@ -1040,7 +1301,21 @@ def main() -> int:
                     replay_data["test_run_2"] = test_runs[1]
 
                 first_run = test_runs[0]
-                if first_run["exit_code"] != 0:
+                zero_test_signal = detect_zero_test_signal(first_run)
+                if zero_test_signal:
+                    replay_failed = True
+                    issues.append(
+                        issue(
+                            "test_runs_zero",
+                            "Test command executed zero tests",
+                            "high",
+                            "replay",
+                            f"Replay run reported zero tests ({zero_test_signal}); test command exit code {first_run['exit_code']}.",
+                            "Update test_command to run the real suite and fail when zero tests are collected.",
+                            20,
+                        )
+                    )
+                elif first_run["exit_code"] != 0:
                     replay_failed = True
                     issues.append(
                         issue(
@@ -1086,9 +1361,12 @@ def main() -> int:
                     )
 
                 minimized = minimal_env(cfg.get("required_env", []))
+                tmp_root_min_env = Path(tmp_dir) / "workspace-min-env"
+                tmp_root_min_env.mkdir(parents=True, exist_ok=True)
+                copy_workspace(root, tmp_root_min_env)
                 test_min_env = run_shell(
                     resolved_cmds["test_command"],
-                    cwd=tmp_root,
+                    cwd=tmp_root_min_env,
                     env=minimized,
                     timeout_sec=args.timeout_sec,
                 )
@@ -1096,6 +1374,7 @@ def main() -> int:
                     "command": test_min_env["command"],
                     "exit_code": test_min_env["exit_code"],
                     "duration_sec": test_min_env["duration_sec"],
+                    "workspace": str(tmp_root_min_env),
                 }
 
                 if first_run["exit_code"] == 0 and test_min_env["exit_code"] != 0:
@@ -1151,7 +1430,7 @@ def main() -> int:
     report = {
         "meta": {
             "schema_version": "1.1",
-            "generated_at": dt.datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
+            "generated_at": dt.datetime.now(dt.timezone.utc).replace(microsecond=0, tzinfo=None).isoformat() + "Z",
             "project_root": str(root),
             "output_dir": str(output_dir),
             "tool": "vibe-repro-guard",

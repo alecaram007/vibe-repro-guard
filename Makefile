@@ -4,8 +4,10 @@ test:
 	python3 -m unittest discover -s tests -p "test_*.py" -v
 
 smoke:
-	cp reproguard.yaml.example reproguard.yaml
-	python3 reproguard.py --project-root . --summary-json || true
+	@TMPDIR=$$(mktemp -d 2>/dev/null || mktemp -d -t reproguard-smoke); \
+	cp reproguard.yaml.example "$$TMPDIR/reproguard.yaml"; \
+	python3 reproguard.py --project-root . --config "$$TMPDIR/reproguard.yaml" --output-dir "$$TMPDIR" --summary-json || true; \
+	rm -rf "$$TMPDIR"
 
 clean:
 	rm -f reproguard.contract.json reproguard.report.json reproguard.report.md
