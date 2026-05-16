@@ -1,0 +1,102 @@
+name: 'Vibe Repro Guard'
+description: 'Deterministic replay guardrail for AI-assisted coding projects. Detects flaky tests, lockfile drift, hidden env deps.'
+author: 'alecaram007'
+branding:
+  icon: 'shield'
+  color: 'green'
+
+inputs:
+  project-root:
+    description: 'Project root path to analyze'
+    required: false
+    default: '.'
+  config:
+    description: 'Path to reproguard.yaml (relative to project-root)'
+    required: false
+    default: 'reproguard.yaml'
+  output-dir:
+    description: 'Where to write artifacts. Empty means project root.'
+    required: false
+    default: ''
+  python-version:
+    description: 'Python version used to run reproguard'
+    required: false
+    default: '3.12'
+  auto-init:
+    description: 'Run "reproguard init" first if no config exists'
+    required: false
+    default: 'true'
+  upload-artifacts:
+    description: 'Upload report artifacts as a workflow artifact'
+    required: false
+    default: 'true'
+
+outputs:
+  score:
+    description: 'Reproducibility score (0-100)'
+    value: ${{ steps.run.outputs.score }}
+  replay-status:
+    description: 'passed or failed'
+    value: ${{ steps.run.outputs.replay_status }}
+  exit-code:
+    description: 'reproguard exit code (0, 20, 30, 40)'
+    value: ${{ steps.run.outputs.exit_code }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Auto-init config if missing
+      if: inputs.auto-init == 'true'
+      shell: bash
+      env:
+        RG_PROJECT_ROOT: ${{ inputs.project-root }}
+        RG_CONFIG: ${{ inputs.config }}
+      run: |
+        if [ ! -f "$RG_PROJECT_ROOT/$RG_CONFIG" ]; then
+          echo "[action] no $RG_CONFIG found, running 'reproguard init'..."
+          python3 "${{ github.action_path }}/reproguard.py" init --project-root "$RG_PROJECT_ROOT" --config "$RG_CONFIG"
+        else
+          echo "[action] using existing $RG_PROJECT_ROOT/$RG_CONFIG"
+        fi
+
+    - name: Run reproguard
+      id: run
+      shell: bash
+      env:
+        RG_PROJECT_ROOT: ${{ inputs.project-root }}
+        RG_CONFIG: ${{ inputs.config }}
+        RG_OUTPUT_DIR: ${{ inputs.output-dir }}
+      run: |
+        ARGS="--project-root $RG_PROJECT_ROOT --config $RG_CONFIG --summary-json"
+        if [ -n "$RG_OUTPUT_DIR" ]; then
+          ARGS="$ARGS --output-dir $RG_OUTPUT_DIR"
+        fi
+        set +e
+        python3 "${{ github.action_path }}/reproguard.py" $ARGS | tee reproguard.action.out
+        RG_EXIT=${PIPESTATUS[0]}
+        set -e
+        SUMMARY_LINE=$(grep -E '^\{.*"score"' reproguard.action.out | tail -1 || true)
+        if [ -n "$SUMMARY_LINE" ]; then
+          SCORE=$(echo "$SUMMARY_LINE" | python3 -c "import sys, json; print(json.loads(sys.stdin.read()).get('score', ''))")
+          REPLAY=$(echo "$SUMMARY_LINE" | python3 -c "import sys, json; print(json.loads(sys.stdin.read()).get('replay_status', ''))")
+          echo "score=$SCORE" >> "$GITHUB_OUTPUT"
+          echo "replay_status=$REPLAY" >> "$GITHUB_OUTPUT"
+        fi
+        echo "exit_code=$RG_EXIT" >> "$GITHUB_OUTPUT"
+        exit $RG_EXIT
+
+    - name: Upload artifacts
+      if: always() && inputs.upload-artifacts == 'true'
+      uses: actions/upload-artifact@v4
+      with:
+        name: reproguard-artifacts
+        path: |
+          ${{ inputs.project-root }}/reproguard.contract.json
+          ${{ inputs.project-root }}/reproguard.report.json
+          ${{ inputs.project-root }}/reproguard.report.md
+        if-no-files-found: ignore

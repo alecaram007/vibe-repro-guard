@@ -1,0 +1,17 @@
+- id: reproguard
+  name: reproguard
+  description: Deterministic replay guardrail for AI-generated code
+  entry: reproguard
+  language: python
+  pass_filenames: false
+  always_run: true
+  stages: [pre-push]
+
+- id: reproguard-init
+  name: reproguard init (one-time setup)
+  description: Generate reproguard.yaml on first run
+  entry: reproguard init
+  language: python
+  pass_filenames: false
+  always_run: false
+  stages: [manual]

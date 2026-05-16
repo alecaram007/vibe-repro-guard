@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.4.0 - 2026-05-16
+- Added `reproguard init` subcommand that auto-generates `reproguard.yaml` by scanning the project (project type, runtime versions, lockfiles, env-var references). Eliminates the manual-YAML onboarding step.
+- Added an official GitHub Action (`action.yml`) with `auto-init` support, `score`/`replay-status`/`exit-code` outputs, and automatic artifact upload.
+- Added pre-commit hook definitions (`.pre-commit-hooks.yaml`) so projects can wire reproguard into `pre-commit` for the `pre-push` stage.
+- Added exit code `41` for `init` precondition failures (existing config without `--force`, missing project root).
+- Rewrote README with a story-hook opening, side-by-side comparison table vs `pytest --count`, `act`, and Docker, plus copy-paste CI/pre-commit snippets.
+- Added 4 regression tests for the `init` command (50 tests total).
+
+## 1.3.0 - 2026-05-16
+- Added Rust, Go, and Ruby project type detection (`Cargo.toml`, `go.mod`, `Gemfile`).
+- Added default lockfile inference for Rust (`Cargo.lock`), Go (`go.sum`), and Ruby (`Gemfile.lock`).
+- Extended env-usage scanning to recognise Go (`os.Getenv`), Rust (`env::var` / `std::env::var`), and Ruby (`ENV[...]`, `ENV.fetch(...)`).
+- Extended non-determinism scanning for Go (`time.Now`, `math/rand`), Rust (`SystemTime::now`, `rand`), and Ruby (`Time.now`, `SecureRandom`).
+- Extended zero-test signal detection to cover `go test` (`no test files`, `no tests to run`), `cargo test` (`running 0 tests`), `rspec` (`0 examples, 0 failures`), and `phpunit` (`No tests executed`).
+- Extended `is_test_file` to recognise TypeScript and JSX test suffixes (`.test.ts`, `.spec.ts`, `.test.tsx`, `.spec.tsx`, `.test.mjs`, `.spec.mjs`, `.test.cjs`, `.spec.cjs`) plus `_test.go` and `_spec.rb`.
+- Added runtime drift detection for Rust/Go/Ruby/PHP via an alias mapping (e.g. `runtime.rust` → `rustc --version`).
+- Added `issue_totals` line to the Markdown report summary so reviewers see severity counts without parsing JSON.
+- Fixed `datetime.utcnow()` deprecation warning on Python 3.12+ by switching to timezone-aware UTC.
+- Made `make smoke` operate inside a temporary directory so it no longer leaves `reproguard.yaml` or artifacts in the repo root.
+- Added 14 regression tests for the new behaviour (46 tests total).
+
 ## 1.2.13 - 2026-05-15
 - Added a versioned JSON Schema for `reproguard.report.json`.
 - Documented report compatibility rules and required machine-readable fields.

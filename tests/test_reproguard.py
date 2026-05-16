@@ -789,6 +789,322 @@ class ReproGuardTests(unittest.TestCase):
         issue_ids = {x["id"] for x in issues}
         self.assertNotIn("runtime_drift_python", issue_ids)
 
+    def test_typescript_test_file_detected_for_nondeterminism(self):
+        with tempfile.TemporaryDirectory(prefix="rg-ts-nondet-") as tmp:
+            root = Path(tmp)
+            write(root / "requirements.txt", "# lock marker\n")
+            write(root / "tests.py", "print('ok')\n")
+            write(root / "app.test.ts", "test('x', () => { const t = Date.now(); });\n")
+            config = textwrap.dedent(
+                f"""
+                mode: advisory
+                score_threshold: 85
+                test_command: "python3 tests.py"
+                runtime:
+                  python: "{platform.python_version()}"
+                lockfiles:
+                  - requirements.txt
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc, report = run_guard(root)
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            issue_ids = {x["id"] for x in report["issues"]}
+            self.assertIn("nondeterministic_test_signals", issue_ids)
+
+    def test_rust_cargo_lockfile_recognized_by_default_policy(self):
+        with tempfile.TemporaryDirectory(prefix="rg-cargo-lock-") as tmp:
+            root = Path(tmp)
+            write(root / "Cargo.toml", "[package]\nname=\"demo\"\nversion=\"0.1.0\"\n")
+            write(root / "Cargo.lock", "version = 3\n")
+            write(root / "tests.py", "print('ok')\n")
+            config = textwrap.dedent(
+                f"""
+                mode: advisory
+                score_threshold: 95
+                test_command: "python3 tests.py"
+                runtime:
+                  python: "{platform.python_version()}"
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc, report = run_guard(root)
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            issue_ids = {x["id"] for x in report["issues"]}
+            self.assertNotIn("lockfile_missing", issue_ids)
+
+    def test_rust_missing_cargo_lockfile_detected_by_default_policy(self):
+        with tempfile.TemporaryDirectory(prefix="rg-cargo-missing-") as tmp:
+            root = Path(tmp)
+            write(root / "Cargo.toml", "[package]\nname=\"demo\"\nversion=\"0.1.0\"\n")
+            write(root / "tests.py", "print('ok')\n")
+            config = textwrap.dedent(
+                f"""
+                mode: advisory
+                score_threshold: 95
+                test_command: "python3 tests.py"
+                runtime:
+                  python: "{platform.python_version()}"
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc, report = run_guard(root)
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            issue_ids = {x["id"] for x in report["issues"]}
+            self.assertIn("lockfile_missing", issue_ids)
+
+    def test_go_sum_lockfile_recognized_by_default_policy(self):
+        with tempfile.TemporaryDirectory(prefix="rg-go-sum-") as tmp:
+            root = Path(tmp)
+            write(root / "go.mod", "module demo\n\ngo 1.22\n")
+            write(root / "go.sum", "example.com/dep v1.0.0 h1:abc\n")
+            write(root / "tests.py", "print('ok')\n")
+            config = textwrap.dedent(
+                f"""
+                mode: advisory
+                score_threshold: 95
+                test_command: "python3 tests.py"
+                runtime:
+                  python: "{platform.python_version()}"
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc, report = run_guard(root)
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            issue_ids = {x["id"] for x in report["issues"]}
+            self.assertNotIn("lockfile_missing", issue_ids)
+
+    def test_go_missing_sum_lockfile_detected_by_default_policy(self):
+        with tempfile.TemporaryDirectory(prefix="rg-go-missing-") as tmp:
+            root = Path(tmp)
+            write(root / "go.mod", "module demo\n\ngo 1.22\n")
+            write(root / "tests.py", "print('ok')\n")
+            config = textwrap.dedent(
+                f"""
+                mode: advisory
+                score_threshold: 95
+                test_command: "python3 tests.py"
+                runtime:
+                  python: "{platform.python_version()}"
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc, report = run_guard(root)
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            issue_ids = {x["id"] for x in report["issues"]}
+            self.assertIn("lockfile_missing", issue_ids)
+
+    def test_ruby_gemfile_lock_recognized_by_default_policy(self):
+        with tempfile.TemporaryDirectory(prefix="rg-ruby-lock-") as tmp:
+            root = Path(tmp)
+            write(root / "Gemfile", "source 'https://rubygems.org'\n")
+            write(root / "Gemfile.lock", "DEPENDENCIES\n")
+            write(root / "tests.py", "print('ok')\n")
+            config = textwrap.dedent(
+                f"""
+                mode: advisory
+                score_threshold: 95
+                test_command: "python3 tests.py"
+                runtime:
+                  python: "{platform.python_version()}"
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc, report = run_guard(root)
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            issue_ids = {x["id"] for x in report["issues"]}
+            self.assertNotIn("lockfile_missing", issue_ids)
+
+    def test_ruby_missing_gemfile_lock_detected_by_default_policy(self):
+        with tempfile.TemporaryDirectory(prefix="rg-ruby-missing-") as tmp:
+            root = Path(tmp)
+            write(root / "Gemfile", "source 'https://rubygems.org'\n")
+            write(root / "tests.py", "print('ok')\n")
+            config = textwrap.dedent(
+                f"""
+                mode: advisory
+                score_threshold: 95
+                test_command: "python3 tests.py"
+                runtime:
+                  python: "{platform.python_version()}"
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc, report = run_guard(root)
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            issue_ids = {x["id"] for x in report["issues"]}
+            self.assertIn("lockfile_missing", issue_ids)
+
+    def test_scan_env_usage_detects_go_rust_ruby_patterns(self):
+        with tempfile.TemporaryDirectory(prefix="rg-env-multi-lang-") as tmp:
+            root = Path(tmp)
+            write(root / "main.go", 'package main\nimport "os"\nvar x = os.Getenv("GO_TOKEN")\n')
+            write(
+                root / "main.rs",
+                'use std::env;\nfn f() { let _v = env::var("RUST_TOKEN").unwrap(); }\n',
+            )
+            write(
+                root / "main.rb",
+                "puts ENV['RUBY_TOKEN']\nval = ENV.fetch('RUBY_FETCH_TOKEN')\n",
+            )
+            referenced = reproguard.scan_env_usage(root)
+            self.assertIn("GO_TOKEN", referenced)
+            self.assertIn("RUST_TOKEN", referenced)
+            self.assertIn("RUBY_TOKEN", referenced)
+            self.assertIn("RUBY_FETCH_TOKEN", referenced)
+
+    def test_markdown_report_includes_issue_totals(self):
+        with tempfile.TemporaryDirectory(prefix="rg-md-totals-") as tmp:
+            root = Path(tmp)
+            write(root / "requirements.txt", "# lock marker\n")
+            write(root / "tests.py", "print('ok')\n")
+            config = textwrap.dedent(
+                f"""
+                mode: advisory
+                score_threshold: 85
+                test_command: "python3 tests.py"
+                runtime:
+                  python: "{platform.python_version()}"
+                lockfiles:
+                  - requirements.txt
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc, report = run_guard(root)
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            md = (root / "reproguard.report.md").read_text(encoding="utf-8")
+            self.assertIn("Issue totals:", md)
+            self.assertIn("critical=", md)
+            self.assertIn("high=", md)
+            self.assertIn("medium=", md)
+            self.assertIn("low=", md)
+
+    def test_zero_test_signal_detector_supports_go_test_no_files(self):
+        signal = reproguard.detect_zero_test_signal(
+            {
+                "stdout": "?       example.com/demo        [no test files]\n",
+                "stderr": "",
+            }
+        )
+        self.assertEqual(signal, "go-test")
+
+    def test_zero_test_signal_detector_supports_cargo_test_running_zero(self):
+        signal = reproguard.detect_zero_test_signal(
+            {
+                "stdout": "running 0 tests\n\ntest result: ok. 0 passed; 0 failed\n",
+                "stderr": "",
+            }
+        )
+        self.assertEqual(signal, "cargo-test")
+
+    def test_zero_test_signal_detector_supports_rspec_zero_examples(self):
+        signal = reproguard.detect_zero_test_signal(
+            {
+                "stdout": "Finished in 0.001 seconds\n0 examples, 0 failures\n",
+                "stderr": "",
+            }
+        )
+        self.assertEqual(signal, "rspec")
+
+    def test_zero_test_signal_detector_supports_phpunit_no_tests_executed(self):
+        signal = reproguard.detect_zero_test_signal(
+            {
+                "stdout": "No tests executed!\n",
+                "stderr": "",
+            }
+        )
+        self.assertEqual(signal, "phpunit")
+
+    def test_rust_runtime_drift_detected_via_alias_mapping(self):
+        cfg = {"runtime": {"rust": "1.78.0"}}
+        project_type = {"python": False, "node": False, "rust": True}
+        versions = {
+            "rustc": {
+                "exit_code": 0,
+                "stdout": "rustc 1.79.0 (abc123 2024-06-13)",
+                "stderr": "",
+            }
+        }
+        issues = []
+        reproguard.apply_runtime_checks(cfg, project_type, versions, issues)
+        issue_ids = {x["id"] for x in issues}
+        self.assertIn("runtime_drift_rust", issue_ids)
+
+    def test_init_generates_config_for_python_project(self):
+        with tempfile.TemporaryDirectory(prefix="rg-init-py-") as tmp:
+            root = Path(tmp)
+            write(root / "requirements.txt", "alpha==1.0\n")
+            write(root / "app.py", "import os\nv = os.getenv('DEMO_TOKEN')\n")
+            proc = subprocess.run(
+                ["python3", str(SCRIPT), "init", "--project-root", str(root)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            cfg_path = root / "reproguard.yaml"
+            self.assertTrue(cfg_path.exists())
+            text = cfg_path.read_text(encoding="utf-8")
+            self.assertIn("mode: advisory", text)
+            self.assertIn("test_command:", text)
+            self.assertIn("requirements.txt", text)
+            self.assertIn("DEMO_TOKEN", text)
+            # The generated config should produce a parseable load
+            cfg, errors = reproguard.load_config(cfg_path)
+            self.assertEqual(errors, [], f"unexpected config errors: {errors}")
+            self.assertEqual(cfg["mode"], "advisory")
+
+    def test_init_refuses_to_overwrite_without_force(self):
+        with tempfile.TemporaryDirectory(prefix="rg-init-existing-") as tmp:
+            root = Path(tmp)
+            write(root / "reproguard.yaml", "mode: strict\n")
+            proc = subprocess.run(
+                ["python3", str(SCRIPT), "init", "--project-root", str(root)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(proc.returncode, 41, proc.stderr + proc.stdout)
+            self.assertEqual(
+                (root / "reproguard.yaml").read_text(encoding="utf-8"),
+                "mode: strict\n",
+            )
+
+    def test_init_with_force_overwrites(self):
+        with tempfile.TemporaryDirectory(prefix="rg-init-force-") as tmp:
+            root = Path(tmp)
+            write(root / "reproguard.yaml", "mode: strict\n")
+            write(root / "package.json", '{"name":"demo","scripts":{"test":"echo ok"}}\n')
+            proc = subprocess.run(
+                ["python3", str(SCRIPT), "init", "--project-root", str(root), "--force"],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            text = (root / "reproguard.yaml").read_text(encoding="utf-8")
+            self.assertIn("npm test", text)
+            self.assertNotEqual(text, "mode: strict\n")
+
+    def test_init_generates_runnable_config_end_to_end(self):
+        with tempfile.TemporaryDirectory(prefix="rg-init-e2e-") as tmp:
+            root = Path(tmp)
+            write(root / "requirements.txt", "# lock marker\n")
+            write(root / "tests.py", "print('ok')\n")
+            init_proc = subprocess.run(
+                ["python3", str(SCRIPT), "init", "--project-root", str(root)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(init_proc.returncode, 0, init_proc.stderr + init_proc.stdout)
+            cfg_text = (root / "reproguard.yaml").read_text(encoding="utf-8")
+            # Force a test command that we know runs successfully on any machine
+            cfg_text = cfg_text.replace(
+                "test_command: \"python3 -m unittest discover\"",
+                "test_command: \"python3 tests.py\"",
+            )
+            (root / "reproguard.yaml").write_text(cfg_text, encoding="utf-8")
+            proc, report = run_guard(root)
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            self.assertEqual(report["summary"]["replay_status"], "passed")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

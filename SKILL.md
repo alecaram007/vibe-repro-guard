@@ -13,7 +13,15 @@ Skill operativa per aumentare la riproducibilità nel vibe coding con AI, tramit
 3. `replay`: esecuzione build/test in workspace temporaneo pulito.
 4. `report`: score 0-100, issue prioritarie, remediation.
 
-## Setup rapido
+## Setup rapido (zero config)
+```bash
+reproguard init   # scansiona il progetto e genera reproguard.yaml
+reproguard         # esegue il guard
+```
+
+`init` rileva: project type (Python/Node/PHP/Rust/Go/Ruby), runtime locale, lockfile presenti, env vars referenziate nel codice.
+
+## Setup manuale (se preferisci)
 1. Copia `reproguard.yaml.example` in `reproguard.yaml`.
 2. Imposta `build_command`, `test_command`, `runtime`, `required_env` e `lockfiles`.
 3. Esegui:
@@ -21,6 +29,10 @@ Skill operativa per aumentare la riproducibilità nel vibe coding con AI, tramit
 ```bash
 ./reproguard.sh
 ```
+
+## CI / pre-commit
+- **GitHub Action**: `uses: alecaram007/vibe-repro-guard@v1`
+- **pre-commit**: hook `reproguard` registrato nel manifest `.pre-commit-hooks.yaml`
 
 ## Output
 Artefatti generati nella root del progetto:
@@ -33,6 +45,7 @@ Exit codes:
 - `20`: replay fallito
 - `30`: score sotto soglia in `strict`
 - `40`: configurazione invalida
+- `41`: precondizione `init` non soddisfatta (config già esistente senza `--force`)
 
 ## Modalità
 - `advisory` (default): segnala rischi senza bloccare per score.
@@ -43,6 +56,19 @@ Exit codes:
 - `fail_on_lockfile_drift`: se `true`, il replay fallisce quando un lockfile viene creato/modificato/cancellato durante la verifica.
 - `redact_env_patterns`: maschera valori sensibili nei log salvati in report (`[REDACTED]`).
 - `require_declared_env_values`: se `true`, segnala e penalizza quando variabili in `required_env` non sono esportate.
+
+## Linguaggi supportati
+Project type e lockfile inferiti automaticamente da:
+- Python (`pyproject.toml`, `requirements.txt`, `setup.py`)
+- Node (`package.json`)
+- PHP (`composer.json`)
+- Rust (`Cargo.toml`)
+- Go (`go.mod`)
+- Ruby (`Gemfile`)
+
+Scansione env/non-determinismo: `.py .js .ts .tsx .jsx .mjs .cjs .rs .go .rb`.
+
+Zero-test detection: unittest, pytest, jest, vitest, mocha, `go test`, `cargo test`, rspec, phpunit.
 
 ## Note operative
 - Nessuna dipendenza extra Python richiesta.
