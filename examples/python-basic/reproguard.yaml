@@ -1,0 +1,8 @@
+mode: advisory
+score_threshold: 85
+replay_runs: 2
+test_command: "python3 -m unittest discover -p 'test*.py' -t ."
+runtime:
+  python: "3.12.3"
+lockfiles:
+  - requirements.txt

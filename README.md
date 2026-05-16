@@ -169,7 +169,21 @@ make smoke    # one-shot self-check on this repo
 
 ## Examples
 
-- Node basic fixture: [examples/node-basic](./examples/node-basic)
+Copy-paste fixtures for every supported language ([index](./examples/README.md)):
+
+- [examples/python-basic](./examples/python-basic) — Python (stdlib `unittest`)
+- [examples/node-basic](./examples/node-basic) — Node.js
+- [examples/rust-basic](./examples/rust-basic) — Rust (`cargo test`)
+- [examples/go-basic](./examples/go-basic) — Go (`go test`)
+- [examples/ruby-basic](./examples/ruby-basic) — Ruby (`minitest`)
+
+Each fixture is a complete minimal project tuned for a clean `replay=passed` run, so you can verify reproguard works in your environment in under a minute.
+
+## Deeper dives
+
+- [7 reproducibility bugs ReproGuard catches](./docs/STORIES.md) — concrete failure scenarios with exact issue IDs and remediation.
+- [Report schema](./docs/REPORT_SCHEMA.md) — stable JSON contract for CI integrations.
+- [Roadmap](./ROADMAP.md) — what's shipped, what's next.
 
 ## Contributing
 
@@ -180,4 +194,9 @@ make smoke    # one-shot self-check on this repo
 ## Growth
 
 - Launch strategy: [docs/LAUNCH_PLAYBOOK.md](./docs/LAUNCH_PLAYBOOK.md)
+- Ready-to-post launch drafts (HN, X, LinkedIn, Reddit, awesome-list PRs): [docs/LAUNCH_DRAFTS.md](./docs/LAUNCH_DRAFTS.md)
 - Roadmap: [ROADMAP.md](./ROADMAP.md)
+
+## Star History
+
+[![Star History Chart](https://api.star-history.com/svg?repos=alecaram007/vibe-repro-guard&type=Date)](https://star-history.com/#alecaram007/vibe-repro-guard&Date)

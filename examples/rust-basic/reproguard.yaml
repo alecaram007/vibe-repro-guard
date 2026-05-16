@@ -1,0 +1,9 @@
+mode: advisory
+score_threshold: 85
+replay_runs: 2
+build_command: "cargo build --release"
+test_command: "cargo test --quiet"
+runtime:
+  rust: "1.78.0"
+lockfiles:
+  - Cargo.lock

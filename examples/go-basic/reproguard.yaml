@@ -1,0 +1,9 @@
+mode: advisory
+score_threshold: 85
+replay_runs: 2
+build_command: "go build ./..."
+test_command: "go test ./..."
+runtime:
+  go: "1.22.0"
+lockfiles:
+  - go.sum

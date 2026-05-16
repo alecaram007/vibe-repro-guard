@@ -1,0 +1,2 @@
+# No third-party dependencies for this fixture.
+# Listed as a lockfile marker so reproguard can verify lockfile policy.

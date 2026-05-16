@@ -1,0 +1,2 @@
+# Empty placeholder. Go uses go.sum to lock module checksums.
+# This fixture has no external dependencies; go.sum stays empty.

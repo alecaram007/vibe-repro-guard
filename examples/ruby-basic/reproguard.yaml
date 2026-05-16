@@ -1,0 +1,8 @@
+mode: advisory
+score_threshold: 85
+replay_runs: 2
+test_command: "ruby tests.rb"
+runtime:
+  ruby: "3.2.2"
+lockfiles:
+  - Gemfile.lock

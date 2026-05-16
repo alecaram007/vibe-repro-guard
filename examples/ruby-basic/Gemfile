@@ -1,0 +1,4 @@
+source "https://rubygems.org"
+
+# No third-party gems for this fixture. RSpec is optional;
+# default test command uses Ruby stdlib `minitest` via `ruby tests.rb`.
