@@ -1083,6 +1083,37 @@ class ReproGuardTests(unittest.TestCase):
             self.assertIn("npm test", text)
             self.assertNotEqual(text, "mode: strict\n")
 
+    def test_zero_test_signal_wins_over_generic_replay_failure(self):
+        # Reproduces a real CPython 3.12.x regression: `unittest discover`
+        # returns exit code 5 (not 0) when zero tests are collected. The
+        # zero-test signal must still be classified as `test_runs_zero`,
+        # not the generic `replay_test_failed`.
+        with tempfile.TemporaryDirectory(prefix="rg-zero-nonzero-exit-") as tmp:
+            root = Path(tmp)
+            write(root / "requirements.txt", "# lock marker\n")
+            write(
+                root / "fake_test_runner.sh",
+                "#!/usr/bin/env bash\necho 'Ran 0 tests in 0.000s'\nexit 5\n",
+            )
+            os.chmod(root / "fake_test_runner.sh", 0o755)
+            config = textwrap.dedent(
+                f"""
+                mode: advisory
+                score_threshold: 85
+                test_command: "bash fake_test_runner.sh"
+                runtime:
+                  python: "{platform.python_version()}"
+                lockfiles:
+                  - requirements.txt
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc, report = run_guard(root)
+            self.assertEqual(proc.returncode, 20, proc.stderr + proc.stdout)
+            issue_ids = {x["id"] for x in report["issues"]}
+            self.assertIn("test_runs_zero", issue_ids)
+            self.assertNotIn("replay_test_failed", issue_ids)
+
     def test_init_generates_runnable_config_end_to_end(self):
         with tempfile.TemporaryDirectory(prefix="rg-init-e2e-") as tmp:
             root = Path(tmp)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Vibe Repro Guard v1.4.0
+Vibe Repro Guard v1.4.1
 
 Deterministic replay guardrail for AI-assisted coding projects.
 No external dependencies required (Python stdlib only).
@@ -1301,7 +1301,21 @@ def main() -> int:
                     replay_data["test_run_2"] = test_runs[1]
 
                 first_run = test_runs[0]
-                if first_run["exit_code"] != 0:
+                zero_test_signal = detect_zero_test_signal(first_run)
+                if zero_test_signal:
+                    replay_failed = True
+                    issues.append(
+                        issue(
+                            "test_runs_zero",
+                            "Test command executed zero tests",
+                            "high",
+                            "replay",
+                            f"Replay run reported zero tests ({zero_test_signal}); test command exit code {first_run['exit_code']}.",
+                            "Update test_command to run the real suite and fail when zero tests are collected.",
+                            20,
+                        )
+                    )
+                elif first_run["exit_code"] != 0:
                     replay_failed = True
                     issues.append(
                         issue(
@@ -1314,21 +1328,6 @@ def main() -> int:
                             20,
                         )
                     )
-                else:
-                    zero_test_signal = detect_zero_test_signal(first_run)
-                    if zero_test_signal:
-                        replay_failed = True
-                        issues.append(
-                            issue(
-                                "test_runs_zero",
-                                "Test command executed zero tests",
-                                "high",
-                                "replay",
-                                f"Replay run completed but no tests were executed ({zero_test_signal}).",
-                                "Update test_command to run the real suite and fail when zero tests are collected.",
-                                20,
-                            )
-                        )
 
                 exit_codes = {x["exit_code"] for x in test_runs}
                 output_hashes = {x["stdout_hash"] for x in test_runs}

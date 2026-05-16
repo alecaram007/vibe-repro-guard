@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.4.1 - 2026-05-16
+- Fixed regression on Python 3.12.10+ where `unittest discover` started returning exit code 5 (instead of 0) for zero-test runs, causing reproguard to emit the generic `replay_test_failed` issue instead of the specific `test_runs_zero`. Zero-test detection now runs before the generic exit-code fallback, so empty suites are correctly classified regardless of the runner's exit code.
+- Added regression test reproducing the failure with a fake runner that prints `Ran 0 tests` and exits non-zero.
+
 ## 1.4.0 - 2026-05-16
 - Added `reproguard init` subcommand that auto-generates `reproguard.yaml` by scanning the project (project type, runtime versions, lockfiles, env-var references). Eliminates the manual-YAML onboarding step.
 - Added an official GitHub Action (`action.yml`) with `auto-init` support, `score`/`replay-status`/`exit-code` outputs, and automatic artifact upload.
