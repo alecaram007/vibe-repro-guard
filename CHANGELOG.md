@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.5.0 - 2026-05-16
+- Added `reproguard explain <issue-id>` command. Prints a structured breakdown (severity, deduction, phase, what it means, why it matters, how to fix) for every known issue. Supports `--list` to enumerate all IDs, including the runtime variants (`runtime_drift_*`, `runtime_not_pinned_*`, `runtime_missing_*`).
+- Added `--version` flag that prints `reproguard <version>` and exits.
+- Added `--sarif` flag that emits a `reproguard.report.sarif.json` artifact alongside JSON/Markdown. SARIF 2.1.0, ready for GitHub Code Scanning, GitLab custom reports, or any SARIF consumer. Severity mapping: critical/high → `error`, medium → `warning`, low → `note`.
+- Exposed `reproguard.__version__` for programmatic version queries.
+- Added [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) — copy-paste snippets for GitHub Actions (with Code Scanning upload), GitLab CI, CircleCI, Buildkite, Jenkins, pre-commit, and a Dockerfile.
+- New exit code `42` for `explain` invocations with an unknown issue ID.
+- Added 9 regression tests (51 → 60 total).
+
 ## 1.4.1 - 2026-05-16
 - Fixed regression on Python 3.12.10+ where `unittest discover` started returning exit code 5 (instead of 0) for zero-test runs, causing reproguard to emit the generic `replay_test_failed` issue instead of the specific `test_runs_zero`. Zero-test detection now runs before the generic exit-code fallback, so empty suites are correctly classified regardless of the runner's exit code.
 - Added regression test reproducing the failure with a fake runner that prints `Ran 0 tests` and exits non-zero.

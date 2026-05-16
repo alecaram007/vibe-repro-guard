@@ -140,6 +140,10 @@ reproguard init                              # auto-generate reproguard.yaml
 reproguard init --force                      # overwrite existing config
 reproguard                                   # run the guard
 reproguard --project-root . --output-dir ./artifacts --summary-json
+reproguard --sarif                           # also emit SARIF for GitHub Code Scanning
+reproguard --version                         # print version and exit
+reproguard explain lockfile_drift            # explain what an issue ID means
+reproguard explain --list                    # list all known issue IDs
 ```
 
 ## Exit codes
@@ -151,6 +155,7 @@ reproguard --project-root . --output-dir ./artifacts --summary-json
 | `30` | strict policy failed (`score < threshold`) |
 | `40` | invalid configuration |
 | `41` | `init` precondition not met (existing config without `--force`) |
+| `42` | `explain` invoked with an unknown issue ID |
 
 ## Artifacts
 
@@ -182,6 +187,7 @@ Each fixture is a complete minimal project tuned for a clean `replay=passed` run
 ## Deeper dives
 
 - [7 reproducibility bugs ReproGuard catches](./docs/STORIES.md) — concrete failure scenarios with exact issue IDs and remediation.
+- [CI Integrations](./docs/INTEGRATIONS.md) — copy-paste snippets for GitHub Actions, GitLab CI, CircleCI, Buildkite, Jenkins, pre-commit, Docker.
 - [Report schema](./docs/REPORT_SCHEMA.md) — stable JSON contract for CI integrations.
 - [Roadmap](./ROADMAP.md) — what's shipped, what's next.
 

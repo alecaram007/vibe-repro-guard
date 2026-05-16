@@ -1,5 +1,11 @@
 # Roadmap
 
+## Shipped in 1.5.0
+- `reproguard explain <issue-id>` command (with `--list`).
+- `--version` flag and programmatic `reproguard.__version__`.
+- `--sarif` output for GitHub Code Scanning and SARIF-aware tools.
+- `docs/INTEGRATIONS.md` with snippets for GitHub Actions, GitLab CI, CircleCI, Buildkite, Jenkins, pre-commit, and Docker.
+
 ## Shipped in 1.4.0
 - `reproguard init` zero-config onboarding (auto-detects project type, runtime, lockfiles, env vars).
 - Official GitHub Action with `auto-init` and `score`/`replay-status`/`exit-code` outputs.
@@ -14,11 +20,10 @@
 - Runtime drift alias mapping (`runtime.rust` → `rustc`, etc.).
 - `issue_totals` in the Markdown report summary.
 
-## v1.4
+## v1.6
 - `--phase` execution mode (`baseline`, `contract`, `replay`, `report`).
 - Flaky-test confidence scoring (per-run variance metrics).
 - Optional isolated environment replay profile (temp virtualenv / npm cache isolation).
-- SARIF output for CI code scanning integrations.
 
 ## v2.0
 - Multi-language plugin architecture for framework-specific checks.

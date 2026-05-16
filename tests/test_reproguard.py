@@ -1114,6 +1114,137 @@ class ReproGuardTests(unittest.TestCase):
             self.assertIn("test_runs_zero", issue_ids)
             self.assertNotIn("replay_test_failed", issue_ids)
 
+    def test_version_flag_prints_version(self):
+        proc = subprocess.run(
+            ["python3", str(SCRIPT), "--version"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        combined = proc.stdout + proc.stderr
+        self.assertIn("reproguard", combined.lower())
+        self.assertIn(reproguard.__version__, combined)
+
+    def test_explain_known_issue_returns_zero_and_describes(self):
+        proc = subprocess.run(
+            ["python3", str(SCRIPT), "explain", "lockfile_drift"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        self.assertIn("lockfile_drift", proc.stdout)
+        self.assertIn("WHAT IT MEANS", proc.stdout)
+        self.assertIn("HOW TO FIX", proc.stdout)
+
+    def test_explain_runtime_pattern_resolves_via_prefix(self):
+        proc = subprocess.run(
+            ["python3", str(SCRIPT), "explain", "runtime_drift_python"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        self.assertIn("runtime_drift_python", proc.stdout)
+        self.assertIn("python", proc.stdout.lower())
+
+    def test_explain_unknown_issue_returns_42(self):
+        proc = subprocess.run(
+            ["python3", str(SCRIPT), "explain", "totally_made_up_id"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 42, proc.stderr + proc.stdout)
+        self.assertIn("Unknown issue ID", proc.stdout)
+
+    def test_explain_list_lists_all_known_ids(self):
+        proc = subprocess.run(
+            ["python3", str(SCRIPT), "explain", "--list"],
+            capture_output=True,
+            text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        for known in ["lockfile_drift", "hidden_env_dependency", "test_runs_zero", "nondeterministic_test_exit"]:
+            self.assertIn(known, proc.stdout)
+
+    def test_sarif_flag_writes_well_formed_artifact(self):
+        with tempfile.TemporaryDirectory(prefix="rg-sarif-") as tmp:
+            root = Path(tmp)
+            write(root / "requirements.txt", "# lock marker\n")
+            write(root / "tests.py", "print('ok')\n")
+            config = textwrap.dedent(
+                f"""
+                mode: advisory
+                score_threshold: 85
+                test_command: "python3 tests.py"
+                runtime:
+                  python: "{platform.python_version()}"
+                lockfiles:
+                  - requirements.txt
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc = subprocess.run(
+                ["python3", str(SCRIPT), "--project-root", str(root), "--sarif"],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            sarif_path = root / "reproguard.report.sarif.json"
+            self.assertTrue(sarif_path.exists(), "SARIF artifact missing")
+            sarif = json.loads(sarif_path.read_text(encoding="utf-8"))
+            self.assertEqual(sarif["version"], "2.1.0")
+            self.assertEqual(len(sarif["runs"]), 1)
+            run = sarif["runs"][0]
+            self.assertEqual(run["tool"]["driver"]["name"], "vibe-repro-guard")
+            self.assertEqual(run["tool"]["driver"]["version"], reproguard.__version__)
+            self.assertIn("results", run)
+            self.assertIn("rules", run["tool"]["driver"])
+
+    def test_sarif_results_contain_issue_metadata(self):
+        with tempfile.TemporaryDirectory(prefix="rg-sarif-issues-") as tmp:
+            root = Path(tmp)
+            # Intentionally omit lockfile so we get a `lockfile_missing` issue
+            # and verify it appears in SARIF with severity mapped to "error".
+            write(root / "package.json", '{"name":"demo"}\n')
+            write(root / "tests.py", "print('ok')\n")
+            config = textwrap.dedent(
+                f"""
+                mode: strict
+                score_threshold: 95
+                test_command: "python3 tests.py"
+                runtime:
+                  node: "20.12.2"
+                lockfiles:
+                  - package-lock.json
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc = subprocess.run(
+                ["python3", str(SCRIPT), "--project-root", str(root), "--sarif"],
+                capture_output=True,
+                text=True,
+            )
+            # strict + missing lockfile + runtime drift expected to fail policy
+            self.assertNotEqual(proc.returncode, 40, proc.stderr + proc.stdout)
+            sarif = json.loads((root / "reproguard.report.sarif.json").read_text(encoding="utf-8"))
+            rule_ids = {r["id"] for r in sarif["runs"][0]["tool"]["driver"]["rules"]}
+            result_rule_ids = {r["ruleId"] for r in sarif["runs"][0]["results"]}
+            self.assertIn("lockfile_missing", rule_ids)
+            self.assertIn("lockfile_missing", result_rule_ids)
+            for result in sarif["runs"][0]["results"]:
+                if result["ruleId"] == "lockfile_missing":
+                    self.assertEqual(result["level"], "error")
+
+    def test_lookup_explanation_returns_none_for_unknown(self):
+        self.assertIsNone(reproguard.lookup_explanation("nope_not_a_real_id"))
+
+    def test_lookup_explanation_resolves_runtime_prefix(self):
+        info = reproguard.lookup_explanation("runtime_not_pinned_go")
+        self.assertIsNotNone(info)
+        assert info is not None  # for type narrowing
+        self.assertEqual(info["severity"], "high")
+        self.assertEqual(info["deduction"], 20)
+        self.assertIn("go", info["title"].lower())
+
     def test_init_generates_runnable_config_end_to_end(self):
         with tempfile.TemporaryDirectory(prefix="rg-init-e2e-") as tmp:
             root = Path(tmp)
