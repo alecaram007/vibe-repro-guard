@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Vibe Repro Guard v1.6.0
+Vibe Repro Guard v1.6.1
 
 Deterministic replay guardrail for AI-assisted coding projects.
 No external dependencies required (Python stdlib only).
@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
-__version__ = "1.6.0"
+__version__ = "1.6.1"
 
 ARTIFACT_CONTRACT = "reproguard.contract.json"
 ARTIFACT_REPORT_JSON = "reproguard.report.json"
