@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Vibe Repro Guard v1.4.1
+Vibe Repro Guard v1.5.0
 
 Deterministic replay guardrail for AI-assisted coding projects.
 No external dependencies required (Python stdlib only).
@@ -24,9 +24,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
+__version__ = "1.5.0"
+
 ARTIFACT_CONTRACT = "reproguard.contract.json"
 ARTIFACT_REPORT_JSON = "reproguard.report.json"
 ARTIFACT_REPORT_MD = "reproguard.report.md"
+ARTIFACT_REPORT_SARIF = "reproguard.report.sarif.json"
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "mode": "advisory",
@@ -668,6 +671,223 @@ def render_init_config(
     return "\n".join(lines) + "\n"
 
 
+EXPLANATIONS: Dict[str, Dict[str, Any]] = {
+    "config_invalid": {
+        "title": "Invalid reproguard.yaml configuration",
+        "severity": "critical",
+        "deduction": 30,
+        "phase": "baseline",
+        "what": "The YAML config could not be loaded or failed schema validation.",
+        "why": "Without a valid config, reproguard cannot decide what to run or how to score the result.",
+        "fix": "Read the `config_errors` in the report; fix each one. Run `reproguard init --force` to start over from an auto-generated baseline.",
+    },
+    "git_dirty_workspace": {
+        "title": "Git workspace has uncommitted changes",
+        "severity": "low",
+        "deduction": 5,
+        "phase": "baseline",
+        "what": "Files are modified, staged, or untracked at the time of the run.",
+        "why": "A dirty workspace cannot be shared as a reproducible reference (other devs cannot check out the exact same state).",
+        "fix": "Commit or stash before the final reproducibility validation. Acceptable during dev iteration; should be clean before tagging a release.",
+    },
+    "required_env_missing_values": {
+        "title": "Required environment values are not set",
+        "severity": "high",
+        "deduction": 20,
+        "phase": "baseline",
+        "what": "Variables listed under `required_env` are missing or empty in the current shell.",
+        "why": "If reproguard runs without them, your replay won't represent the real production environment, defeating the point of the check.",
+        "fix": "Export the listed variables before re-running, or set `require_declared_env_values: false` if a missing value is genuinely acceptable.",
+    },
+    "lockfile_not_declared": {
+        "title": "No lockfile policy declared",
+        "severity": "medium",
+        "deduction": 10,
+        "phase": "contract",
+        "what": "No `lockfiles` entry in the config, and no project type was detected (so no defaults applied).",
+        "why": "Without a lockfile, dependency versions drift silently between machines and time.",
+        "fix": "Add the lockfile path(s) to `reproguard.yaml`, or let reproguard infer from the project type by adding a recognised manifest (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `Gemfile`, `composer.json`).",
+    },
+    "lockfile_missing": {
+        "title": "Configured or expected lockfile is missing",
+        "severity": "critical",
+        "deduction": 30,
+        "phase": "contract",
+        "what": "A lockfile path declared in `reproguard.yaml` (or inferred from the project type) doesn't exist on disk.",
+        "why": "Replay cannot guarantee dependency stability if the lockfile is absent.",
+        "fix": "Generate the lockfile (`npm install`, `pip-compile`, `poetry lock`, `cargo update`, etc.) and commit it.",
+    },
+    "env_not_declared": {
+        "title": "Environment variables used but not declared",
+        "severity": "medium",
+        "deduction": 10,
+        "phase": "contract",
+        "what": "Source files reference env vars (`process.env.X`, `os.getenv('Y')`, `ENV['Z']`, etc.) that aren't in `required_env`.",
+        "why": "Undeclared env reliance creates 'works on my machine' bugs.",
+        "fix": "Add the variables to `required_env` so reproguard can verify they're present and stable across machines.",
+    },
+    "nondeterministic_test_signals": {
+        "title": "Potential non-deterministic constructs in tests",
+        "severity": "medium",
+        "deduction": 10,
+        "phase": "contract",
+        "what": "A static scan found `Date.now()`, `time.time()`, `random.*`, `SystemTime::now`, `Time.now`, `SecureRandom`, etc. in test files (not gated by `mock` / `freeze` / `faker.seed`).",
+        "why": "Wall-clock and random sources in tests are the #1 source of intermittent flakes.",
+        "fix": "Mock the time source, freeze randomness with a fixed seed, or inject deterministic values explicitly.",
+    },
+    "test_command_missing": {
+        "title": "No test command resolved",
+        "severity": "medium",
+        "deduction": 10,
+        "phase": "contract",
+        "what": "Neither `test_command` is set nor was a default inferred from the project type.",
+        "why": "Without a test command there's nothing to replay; the score reflects only contract-level checks.",
+        "fix": "Set `test_command` in `reproguard.yaml`. Run `reproguard init` to get a sensible default for your stack.",
+    },
+    "replay_build_failed": {
+        "title": "Build failed during replay",
+        "severity": "high",
+        "deduction": 20,
+        "phase": "replay",
+        "what": "The configured `build_command` returned a non-zero exit code inside the clean tmp workspace.",
+        "why": "If the build doesn't work on a fresh checkout, the project is by definition not reproducible.",
+        "fix": "Inspect the captured stdout/stderr in the report; install missing build prerequisites; remove reliance on local cached state.",
+    },
+    "replay_test_failed": {
+        "title": "Test command failed during replay",
+        "severity": "high",
+        "deduction": 20,
+        "phase": "replay",
+        "what": "The first test run returned a non-zero exit code in the clean tmp workspace.",
+        "why": "Tests should pass on a fresh checkout. Failure usually means hidden state (env vars, local cache, unstable inputs).",
+        "fix": "Re-run the test command in a fresh shell with only `PATH` and `HOME` set; if it fails, you have undeclared deps. Make all prerequisites explicit.",
+    },
+    "test_runs_zero": {
+        "title": "Test command executed zero tests",
+        "severity": "high",
+        "deduction": 20,
+        "phase": "replay",
+        "what": "The test command exited (regardless of code) without actually running any test cases — detected via runner-specific output fingerprints across unittest, pytest, jest, vitest, mocha, go test, cargo test, rspec, phpunit.",
+        "why": "Zero-test green builds are silent regressions: nothing is verifying your code anymore.",
+        "fix": "Ensure your test discovery glob matches actual files; configure the runner to fail on empty collection (`pytest --strict-markers`, `jest --passWithNoTests=false`).",
+    },
+    "nondeterministic_test_exit": {
+        "title": "Test exit behavior changed across replay runs",
+        "severity": "critical",
+        "deduction": 30,
+        "phase": "replay",
+        "what": "Multiple replay runs of the same command produced different exit codes.",
+        "why": "Coin-flip tests are the worst kind of flakes — they pass CI by luck and rot trust in the whole suite.",
+        "fix": "Look for hidden mutable state: tests writing files at module import, dependencies on system time, shared global state. Isolate or reset.",
+    },
+    "nondeterministic_test_output": {
+        "title": "Test output changed across replay runs",
+        "severity": "high",
+        "deduction": 20,
+        "phase": "replay",
+        "what": "Exit codes matched across runs but stdout+stderr hashes diverged.",
+        "why": "Output drift hints at non-determinism that hasn't yet caused a test failure but probably will (off-by-one, ordering, timing).",
+        "fix": "Diff the captured outputs between two runs to spot the moving value: timestamps, UUIDs, addresses, dict ordering, parallel test interleaving.",
+    },
+    "hidden_env_dependency": {
+        "title": "Replay depends on undeclared environment variables",
+        "severity": "high",
+        "deduction": 20,
+        "phase": "replay",
+        "what": "The primary replay passed with the full environment, but a follow-up replay with only `PATH`/`HOME`/declared `required_env` failed.",
+        "why": "Your test silently relies on something in your shell that won't be present on a teammate's machine or in CI.",
+        "fix": "Find the env var; either declare it in `required_env` so it's part of the contract, or remove the dependency.",
+    },
+    "lockfile_drift": {
+        "title": "Lockfile drift detected during replay",
+        "severity": "high",
+        "deduction": 20,
+        "phase": "replay",
+        "what": "A declared lockfile was created, modified, or deleted between the start and end of the replay.",
+        "why": "A test command should never mutate the lockfile — otherwise CI runs will silently install different versions and reproducibility is gone.",
+        "fix": "Find the implicit `npm install` / `pip install` in the test path. Use frozen-install commands (`npm ci`, `pip-sync`, `poetry install --no-update`).",
+    },
+}
+
+_RUNTIME_ID_PATTERNS = [
+    ("runtime_missing_", "Runtime not declared for the detected project type", "high", 20),
+    ("runtime_not_pinned_", "Runtime version is not pinned to exact semver", "high", 20),
+    ("runtime_drift_", "Runtime version differs from what's declared in the config", "high", 20),
+]
+
+
+def lookup_explanation(issue_id: str) -> Optional[Dict[str, Any]]:
+    if issue_id in EXPLANATIONS:
+        return EXPLANATIONS[issue_id]
+    for prefix, title, severity, deduction in _RUNTIME_ID_PATTERNS:
+        if issue_id.startswith(prefix):
+            key = issue_id[len(prefix):] or "<runtime>"
+            return {
+                "title": f"{title} ({key})",
+                "severity": severity,
+                "deduction": deduction,
+                "phase": "contract",
+                "what": (
+                    f"reproguard expected `runtime.{key}` to be set and to match the detected version, but the contract is incomplete or drifted."
+                ),
+                "why": (
+                    "Without an exact runtime pin, the same source code produces different behavior on different machines."
+                ),
+                "fix": (
+                    f"Set `runtime.{key}` in `reproguard.yaml` to an exact `x.y.z` version; align local tooling via asdf/nvm/pyenv/rustup."
+                ),
+            }
+    return None
+
+
+def format_explanation(issue_id: str, info: Dict[str, Any]) -> str:
+    lines: List[str] = []
+    lines.append(f"[{info.get('severity', '?').upper()}] {issue_id}")
+    lines.append(f"Deduction: -{info.get('deduction', 0)}")
+    lines.append(f"Phase: {info.get('phase', '?')}")
+    lines.append(f"Title: {info.get('title', '')}")
+    lines.append("")
+    lines.append("WHAT IT MEANS")
+    lines.append(info.get("what", ""))
+    lines.append("")
+    lines.append("WHY IT MATTERS")
+    lines.append(info.get("why", ""))
+    lines.append("")
+    lines.append("HOW TO FIX")
+    lines.append(info.get("fix", ""))
+    return "\n".join(lines)
+
+
+def run_explain(argv: List[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="reproguard explain",
+        description="Explain a reproguard issue ID: what it means, why it matters, how to fix it.",
+    )
+    parser.add_argument("issue_id", nargs="?", help="Issue ID to explain (e.g. 'lockfile_drift')")
+    parser.add_argument("--list", action="store_true", help="List all known issue IDs and exit")
+    args = parser.parse_args(argv)
+
+    if args.list:
+        known = sorted(EXPLANATIONS.keys()) + [p[0] + "<runtime>" for p in _RUNTIME_ID_PATTERNS]
+        print("Known issue IDs:")
+        for name in known:
+            print(f"  {name}")
+        return 0
+
+    if not args.issue_id:
+        parser.print_help()
+        return 42
+
+    info = lookup_explanation(args.issue_id)
+    if not info:
+        print(f"Unknown issue ID: {args.issue_id}")
+        print("Run 'reproguard explain --list' to see all known issues.")
+        return 42
+
+    print(format_explanation(args.issue_id, info))
+    return 0
+
+
 def run_init(argv: List[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="reproguard init",
@@ -1146,18 +1366,125 @@ def write_report_markdown(path: Path, report: Dict[str, Any]) -> None:
     path.write_text(render_markdown(report), encoding="utf-8")
 
 
+_SARIF_SEVERITY_TO_LEVEL = {
+    "critical": "error",
+    "high": "error",
+    "medium": "warning",
+    "low": "note",
+}
+
+
+def render_sarif(report: Dict[str, Any]) -> Dict[str, Any]:
+    project_root = report.get("meta", {}).get("project_root", "")
+    issues = report.get("issues", [])
+    rules_seen: Dict[str, Dict[str, Any]] = {}
+    results: List[Dict[str, Any]] = []
+
+    for item in issues:
+        issue_id = item.get("id", "unknown")
+        severity = item.get("severity", "low")
+        level = _SARIF_SEVERITY_TO_LEVEL.get(severity, "note")
+        title = item.get("title", issue_id)
+        evidence = item.get("evidence", "")
+        remediation = item.get("remediation", "")
+        phase = item.get("phase", "")
+
+        explanation = lookup_explanation(issue_id) or {}
+        help_text = (
+            f"**Phase**: {phase}\n\n"
+            f"**What it means**: {explanation.get('what', title)}\n\n"
+            f"**Why it matters**: {explanation.get('why', 'See reproguard report.')}\n\n"
+            f"**How to fix**: {explanation.get('fix', remediation)}"
+        )
+
+        if issue_id not in rules_seen:
+            rules_seen[issue_id] = {
+                "id": issue_id,
+                "name": issue_id,
+                "shortDescription": {"text": title},
+                "fullDescription": {"text": title},
+                "helpUri": "https://github.com/alecaram007/vibe-repro-guard/blob/main/docs/STORIES.md",
+                "help": {"text": help_text, "markdown": help_text},
+                "defaultConfiguration": {"level": level},
+                "properties": {
+                    "severity": severity,
+                    "phase": phase,
+                    "deduction": item.get("deduction", 0),
+                },
+            }
+
+        results.append(
+            {
+                "ruleId": issue_id,
+                "level": level,
+                "message": {"text": f"{title}: {evidence}"},
+                "locations": [
+                    {
+                        "physicalLocation": {
+                            "artifactLocation": {
+                                "uri": "reproguard.yaml",
+                                "uriBaseId": "%SRCROOT%",
+                            }
+                        }
+                    }
+                ],
+                "properties": {
+                    "evidence": evidence,
+                    "remediation": remediation,
+                    "deduction": item.get("deduction", 0),
+                },
+            }
+        )
+
+    return {
+        "$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [
+            {
+                "tool": {
+                    "driver": {
+                        "name": "vibe-repro-guard",
+                        "version": __version__,
+                        "informationUri": "https://github.com/alecaram007/vibe-repro-guard",
+                        "rules": list(rules_seen.values()),
+                    }
+                },
+                "originalUriBaseIds": {
+                    "%SRCROOT%": {"uri": Path(project_root).as_uri() + "/" if project_root else ""},
+                },
+                "results": results,
+                "invocations": [
+                    {
+                        "executionSuccessful": report.get("summary", {}).get("exit_code", 0) == 0,
+                        "exitCode": report.get("summary", {}).get("exit_code", 0),
+                        "endTimeUtc": report.get("meta", {}).get("generated_at", ""),
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def write_report_sarif(path: Path, report: Dict[str, Any]) -> None:
+    path.write_text(json.dumps(render_sarif(report), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
 def main() -> int:
     if len(sys.argv) > 1 and sys.argv[1] == "init":
         return run_init(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == "explain":
+        return run_explain(sys.argv[2:])
 
     parser = argparse.ArgumentParser(
-        description="Vibe Repro Guard (run 'reproguard init' to auto-generate a config)"
+        description="Vibe Repro Guard (run 'reproguard init' to auto-generate a config, 'reproguard explain <id>' to look up an issue)"
     )
+    parser.add_argument("--version", action="version", version=f"reproguard {__version__}")
     parser.add_argument("--project-root", default=".", help="Project root path")
     parser.add_argument("--config", default="reproguard.yaml", help="Config file path (relative to project root)")
     parser.add_argument("--output-dir", default="", help="Directory for artifacts (default: project root)")
     parser.add_argument("--timeout-sec", type=int, default=300, help="Per-command timeout in seconds")
     parser.add_argument("--summary-json", action="store_true", help="Print summary as JSON to stdout")
+    parser.add_argument("--sarif", action="store_true", help="Also emit a SARIF artifact for GitHub Code Scanning")
     args = parser.parse_args()
 
     root = Path(args.project_root).resolve()
@@ -1459,15 +1786,23 @@ def main() -> int:
     write_json(output_dir / ARTIFACT_CONTRACT, contract)
     write_json(output_dir / ARTIFACT_REPORT_JSON, report)
     write_report_markdown(output_dir / ARTIFACT_REPORT_MD, report)
+    sarif_path = None
+    if args.sarif:
+        sarif_path = output_dir / ARTIFACT_REPORT_SARIF
+        write_report_sarif(sarif_path, report)
 
     print(
         f"[reproguard] score={score} mode={mode} threshold={threshold} "
         f"replay={replay_status} exit_code={exit_code}"
     )
-    print(
-        f"[reproguard] artifacts: "
-        f"{output_dir / ARTIFACT_CONTRACT}, {output_dir / ARTIFACT_REPORT_JSON}, {output_dir / ARTIFACT_REPORT_MD}"
-    )
+    artifact_list = [
+        str(output_dir / ARTIFACT_CONTRACT),
+        str(output_dir / ARTIFACT_REPORT_JSON),
+        str(output_dir / ARTIFACT_REPORT_MD),
+    ]
+    if sarif_path is not None:
+        artifact_list.append(str(sarif_path))
+    print(f"[reproguard] artifacts: {', '.join(artifact_list)}")
     if args.summary_json:
         print(json.dumps(report["summary"], ensure_ascii=False))
     return exit_code

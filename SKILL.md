@@ -33,6 +33,13 @@ reproguard         # esegue il guard
 ## CI / pre-commit
 - **GitHub Action**: `uses: alecaram007/vibe-repro-guard@v1`
 - **pre-commit**: hook `reproguard` registrato nel manifest `.pre-commit-hooks.yaml`
+- **Altri CI** (GitLab, Circle, Buildkite, Jenkins): snippet pronti in [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md)
+- **SARIF**: `reproguard --sarif` produce `reproguard.report.sarif.json` per GitHub Code Scanning
+
+## Debug
+- `reproguard --version` — versione installata
+- `reproguard explain <issue_id>` — spiegazione completa di un issue trovato nel report
+- `reproguard explain --list` — elenco di tutti gli issue ID noti
 
 ## Output
 Artefatti generati nella root del progetto:
