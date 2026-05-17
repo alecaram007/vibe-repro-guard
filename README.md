@@ -209,3 +209,12 @@ Each fixture is a complete minimal project tuned for a clean `replay=passed` run
 ## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=alecaram007/vibe-repro-guard&type=Date)](https://star-history.com/#alecaram007/vibe-repro-guard&Date)
+
+## Author
+
+Built and maintained by **[Alessandro Caramazza](https://alessandrocaramazza.it)** — informatico in Sicilia. Software su misura, automazioni, gestionali e bot per PMI.
+
+- 🌐 [alessandrocaramazza.it](https://alessandrocaramazza.it)
+- 💬 [WhatsApp](https://wa.me/393519006821)
+- 📧 [alessandro.caramazza@gmail.com](mailto:alessandro.caramazza@gmail.com)
+
