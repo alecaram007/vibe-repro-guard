@@ -2,7 +2,7 @@
 
 Copy-paste-ready content for the public launch. Tweak before posting; these are starting points calibrated for each channel's voice.
 
-> All drafts assume PyPI is live and the `v1.4.1` tag exists. Verify both before posting.
+> All drafts assume the `v1.6.0` tag exists on GitHub. Distribution is git-only — no PyPI.
 
 ---
 
@@ -30,7 +30,7 @@ What it does, in one command:
 - Detects "0 tests collected" in 9 runners (unittest, pytest, jest, vitest, mocha, go test, cargo test, rspec, phpunit)
 
 Try it in 30 seconds:
-  pip install vibe-repro-guard
+  pip install git+https://github.com/alecaram007/vibe-repro-guard.git
   cd your-project
   reproguard init   # auto-detects Python/Node/Rust/Go/Ruby/PHP
   reproguard
@@ -100,7 +100,7 @@ That's it.
 Zero-config onboarding: `reproguard init` scans your project, detects the language (Python/Node/Rust/Go/Ruby/PHP), runtime, lockfiles, env-var usages, and writes a tuned config for you.
 
 Try it in 30 seconds:
-  pip install vibe-repro-guard
+  pip install git+https://github.com/alecaram007/vibe-repro-guard.git
   cd your-project
   reproguard init && reproguard
 ```
@@ -133,7 +133,7 @@ It runs your build and tests in a fresh tmp workspace, multiple times, and gives
 
 Zero Python dependencies (stdlib only). GitHub Action and pre-commit hook included.
 
-  pip install vibe-repro-guard
+  pip install git+https://github.com/alecaram007/vibe-repro-guard.git
   reproguard init && reproguard
 
 If you ship AI-generated code, this is the kind of guardrail that pays for itself the first time it catches a flaky test in a PR instead of in production.
@@ -191,7 +191,7 @@ One file, no external Python deps. Tests it does in a tmp workspace clone of you
 - scans test files for time.time / datetime.now / random.* / etc
 - detects 0-tests-collected across unittest, pytest, ...
 
-  pip install vibe-repro-guard
+  pip install git+https://github.com/alecaram007/vibe-repro-guard.git
   cd your-project
   reproguard init  # auto-detects, writes config
   reproguard       # score 0-100
@@ -225,7 +225,7 @@ Why it fits this list:
 - [License]: MIT.
 - [Distinct value]: combines fresh-workspace replay + lockfile drift + hidden env detection + static non-determinism scan + zero-test detection across 9 runners. None of the listed alternatives cover all five.
 - [Zero footprint]: single Python file, no third-party runtime deps.
-- [Distribution]: PyPI package, GitHub Action, pre-commit hook.
+- [Distribution]: GitHub Action, pre-commit hook, `pip install git+...` (no PyPI dependency).
 
 Happy to adjust the entry text/location to match the list's conventions.
 ```

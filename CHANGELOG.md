@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.6.1 - 2026-05-17
+- Dropped PyPI distribution. The project is now intentionally git-only: install with `pip install git+https://github.com/alecaram007/vibe-repro-guard.git` or by cloning the repo and running `./reproguard.sh`. Removed PyPI/Downloads badges from the README.
+- Removed `publish_pypi` job from the release workflow. Tag-driven releases still build wheel + sdist, verify the tag matches `pyproject.toml`, and create a GitHub Release with changelog notes and attached artifacts.
+- Updated `docs/INTEGRATIONS.md` and `docs/LAUNCH_DRAFTS.md` so every snippet uses `pip install git+https://github.com/alecaram007/vibe-repro-guard.git` instead of `pip install vibe-repro-guard`.
+- Rewrote `CONTRIBUTING.md` release process — no more PyPI Trusted Publishing instructions.
+- `.pre-commit-hooks.yaml` updated so it works without a PyPI install (uses `python3 reproguard.py` entry, which pre-commit resolves from the cloned hook repo).
+- Behavior of the tool itself is unchanged; tests still 66/66 green.
+
 ## 1.6.0 - 2026-05-17
 - Added `--phase {baseline,contract,replay}` flag. `baseline` produces only the platform/git fingerprint; `contract` adds static checks (runtime, lockfile, env, non-determinism); `replay` (default) runs the full pipeline. Useful for fast pre-flight checks and pipeline debugging.
 - Added `reproguard doctor` command — a one-shot environment diagnostic that lists Python version, git availability, detected project types, toolchain availability, and config validity. Returns 1 if any check fails, 0 otherwise.

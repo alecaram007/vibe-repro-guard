@@ -34,7 +34,7 @@ Outputs `score`, `replay-status`, `exit-code` for downstream steps:
 
 ```yaml
 - name: Reproguard
-  run: pip install vibe-repro-guard && reproguard --sarif --summary-json
+  run: pip install git+https://github.com/alecaram007/vibe-repro-guard.git && reproguard --sarif --summary-json
 - name: Upload SARIF to Code Scanning
   if: always()
   uses: github/codeql-action/upload-sarif@v3
@@ -49,7 +49,7 @@ Outputs `score`, `replay-status`, `exit-code` for downstream steps:
 reproguard:
   image: python:3.12-slim
   script:
-    - pip install --quiet vibe-repro-guard
+    - pip install --quiet git+https://github.com/alecaram007/vibe-repro-guard.git
     - reproguard --summary-json
   artifacts:
     when: always
@@ -75,7 +75,7 @@ jobs:
       - run:
           name: Run ReproGuard
           command: |
-            pip install --quiet vibe-repro-guard
+            pip install --quiet git+https://github.com/alecaram007/vibe-repro-guard.git
             reproguard --summary-json
       - store_artifacts:
           path: reproguard.report.json
@@ -96,7 +96,7 @@ workflows:
 steps:
   - label: ":shield: ReproGuard"
     command: |
-      pip install --quiet vibe-repro-guard
+      pip install --quiet git+https://github.com/alecaram007/vibe-repro-guard.git
       reproguard --summary-json
     artifact_paths:
       - "reproguard.contract.json"
@@ -115,7 +115,7 @@ pipeline {
   stages {
     stage('ReproGuard') {
       steps {
-        sh 'pip install --quiet vibe-repro-guard'
+        sh 'pip install --quiet git+https://github.com/alecaram007/vibe-repro-guard.git'
         sh 'reproguard --summary-json'
       }
       post {
@@ -151,7 +151,7 @@ For providers that prefer a single container image:
 
 ```dockerfile
 FROM python:3.12-slim
-RUN pip install --no-cache-dir vibe-repro-guard
+RUN pip install --no-cache-dir git+https://github.com/alecaram007/vibe-repro-guard.git
 WORKDIR /workspace
 ENTRYPOINT ["reproguard"]
 ```

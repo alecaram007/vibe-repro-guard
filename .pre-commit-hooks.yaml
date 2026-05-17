@@ -1,7 +1,13 @@
+# pre-commit hook manifest. Works with both flows:
+#   1. `pip install git+https://github.com/alecaram007/vibe-repro-guard.git`
+#      -> the `reproguard` entry point is on PATH.
+#   2. pre-commit clones this repo automatically and runs python3 reproguard.py
+#      directly. Both produce the same behaviour.
+
 - id: reproguard
   name: reproguard
   description: Deterministic replay guardrail for AI-generated code
-  entry: reproguard
+  entry: python3 reproguard.py
   language: python
   pass_filenames: false
   always_run: true
@@ -10,7 +16,7 @@
 - id: reproguard-init
   name: reproguard init (one-time setup)
   description: Generate reproguard.yaml on first run
-  entry: reproguard init
+  entry: python3 reproguard.py init
   language: python
   pass_filenames: false
   always_run: false

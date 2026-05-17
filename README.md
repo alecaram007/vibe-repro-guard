@@ -4,8 +4,6 @@
 A deterministic replay guardrail for AI-generated code — finds flaky tests, lockfile drift, and hidden env dependencies in one command.
 
 [![CI](https://github.com/alecaram007/vibe-repro-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/alecaram007/vibe-repro-guard/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/vibe-repro-guard.svg)](https://pypi.org/project/vibe-repro-guard/)
-[![Downloads](https://img.shields.io/pypi/dm/vibe-repro-guard.svg)](https://pypi.org/project/vibe-repro-guard/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Zero dependencies](https://img.shields.io/badge/deps-stdlib%20only-blueviolet)](./pyproject.toml)
@@ -24,11 +22,22 @@ ReproGuard runs your build & test commands **multiple times in a fresh tmp works
 
 ## 30-second start (zero config)
 
+Clone and run — no Python packaging required:
+
 ```bash
-pip install vibe-repro-guard
+git clone https://github.com/alecaram007/vibe-repro-guard.git
+cd vibe-repro-guard
+./reproguard.sh init --project-root /path/to/your-project
+./reproguard.sh --project-root /path/to/your-project
+```
+
+Or install as a Python command directly from git (no PyPI dependency):
+
+```bash
+pip install git+https://github.com/alecaram007/vibe-repro-guard.git
 cd your-project
-reproguard init        # auto-detects language, runtime, lockfiles, env vars
-reproguard             # runs the guard
+reproguard init
+reproguard
 ```
 
 Output:
