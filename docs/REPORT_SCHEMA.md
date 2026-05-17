@@ -8,11 +8,16 @@ payload and lives at:
 
 ## Compatibility
 
-- Current schema version: `1.1`
+- Current schema version: `1.2`
 - Schema version field: `meta.schema_version`
 - Producers may add fields only with a future schema version.
 - Consumers should reject unknown `meta.schema_version` values unless they have
   been explicitly tested.
+
+### 1.2 (additive over 1.1)
+
+- `summary.replay_status` and `phases.replay.status` enum gains a third value `"skipped"`, emitted when the user passes `--phase baseline` or `--phase contract` (so no replay is performed).
+- `phases.replay.skip_reason` optional string explaining why the replay was skipped.
 
 ## Required top-level fields
 

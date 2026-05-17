@@ -141,9 +141,12 @@ reproguard init --force                      # overwrite existing config
 reproguard                                   # run the guard
 reproguard --project-root . --output-dir ./artifacts --summary-json
 reproguard --sarif                           # also emit SARIF for GitHub Code Scanning
+reproguard --phase baseline                  # fingerprint only (fast pre-flight)
+reproguard --phase contract                  # baseline + static checks (no replay)
 reproguard --version                         # print version and exit
 reproguard explain lockfile_drift            # explain what an issue ID means
 reproguard explain --list                    # list all known issue IDs
+reproguard doctor                            # check the local environment
 ```
 
 ## Exit codes
