@@ -87,3 +87,10 @@ python3 -m unittest discover -s tests -p "test_*.py" -v
 
 ## Growth
 - Launch strategy: [docs/LAUNCH_PLAYBOOK.md](./docs/LAUNCH_PLAYBOOK.md)
+
+## Author
+Built and maintained by **[Alessandro Caramazza](https://alessandrocaramazza.it)** — informatico in Sicilia. Software su misura, automazioni, gestionali e bot per PMI.
+
+- 🌐 [alessandrocaramazza.it](https://alessandrocaramazza.it)
+- 💬 [WhatsApp](https://wa.me/393519006821)
+- 📧 [alessandro.caramazza@gmail.com](mailto:alessandro.caramazza@gmail.com)
