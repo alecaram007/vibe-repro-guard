@@ -38,8 +38,10 @@ reproguard         # esegue il guard
 
 ## Debug
 - `reproguard --version` — versione installata
+- `reproguard doctor` — diagnostico ambiente (Python/git/toolchain/config)
 - `reproguard explain <issue_id>` — spiegazione completa di un issue trovato nel report
 - `reproguard explain --list` — elenco di tutti gli issue ID noti
+- `reproguard --phase baseline|contract|replay` — esegui solo fino a una fase (debug pipeline)
 
 ## Output
 Artefatti generati nella root del progetto:

@@ -1,5 +1,10 @@
 # Roadmap
 
+## Shipped in 1.6.0
+- `--phase {baseline,contract,replay}` for selective pipeline execution.
+- `reproguard doctor` one-shot environment diagnostic.
+- Report schema 1.2: `replay_status` enum gains `"skipped"`; `phases.replay.skip_reason` documented.
+
 ## Shipped in 1.5.0
 - `reproguard explain <issue-id>` command (with `--list`).
 - `--version` flag and programmatic `reproguard.__version__`.
@@ -20,10 +25,10 @@
 - Runtime drift alias mapping (`runtime.rust` → `rustc`, etc.).
 - `issue_totals` in the Markdown report summary.
 
-## v1.6
-- `--phase` execution mode (`baseline`, `contract`, `replay`, `report`).
+## v1.7
 - Flaky-test confidence scoring (per-run variance metrics).
 - Optional isolated environment replay profile (temp virtualenv / npm cache isolation).
+- Negative-example fixtures (intentionally-failing fixtures that demonstrate each issue type).
 
 ## v2.0
 - Multi-language plugin architecture for framework-specific checks.

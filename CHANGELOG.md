@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.6.0 - 2026-05-17
+- Added `--phase {baseline,contract,replay}` flag. `baseline` produces only the platform/git fingerprint; `contract` adds static checks (runtime, lockfile, env, non-determinism); `replay` (default) runs the full pipeline. Useful for fast pre-flight checks and pipeline debugging.
+- Added `reproguard doctor` command — a one-shot environment diagnostic that lists Python version, git availability, detected project types, toolchain availability, and config validity. Returns 1 if any check fails, 0 otherwise.
+- Report schema bumped to **1.2** (additive). Changes:
+  - `summary.replay_status` and `phases.replay.status` enum gains a third value `"skipped"`.
+  - `phases.replay.skip_reason` optional string explaining why the replay was skipped.
+  - Existing consumers that gate on `schema_version == "1.1"` will reject 1.2 reports — bump your parser to accept `1.2` and handle `"skipped"` as "no data".
+- Added 6 regression tests (60 → 66 total) covering all three phases, doctor success/failure, and the schema bump.
+
 ## 1.5.0 - 2026-05-16
 - Added `reproguard explain <issue-id>` command. Prints a structured breakdown (severity, deduction, phase, what it means, why it matters, how to fix) for every known issue. Supports `--list` to enumerate all IDs, including the runtime variants (`runtime_drift_*`, `runtime_not_pinned_*`, `runtime_missing_*`).
 - Added `--version` flag that prints `reproguard <version>` and exits.

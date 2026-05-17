@@ -610,7 +610,7 @@ class ReproGuardTests(unittest.TestCase):
 
             schema = json.loads(REPORT_SCHEMA.read_text(encoding="utf-8"))
             assert_matches_schema_subset(self, report, schema, schema)
-            self.assertEqual(report["meta"]["schema_version"], "1.1")
+            self.assertEqual(report["meta"]["schema_version"], "1.2")
             self.assertEqual(
                 schema["properties"]["meta"]["properties"]["schema_version"]["const"],
                 report["meta"]["schema_version"],
@@ -1244,6 +1244,125 @@ class ReproGuardTests(unittest.TestCase):
         self.assertEqual(info["severity"], "high")
         self.assertEqual(info["deduction"], 20)
         self.assertIn("go", info["title"].lower())
+
+    def test_phase_baseline_skips_replay_and_contract(self):
+        with tempfile.TemporaryDirectory(prefix="rg-phase-baseline-") as tmp:
+            root = Path(tmp)
+            write(root / "requirements.txt", "# lock marker\n")
+            write(root / "tests.py", "print('ok')\n")
+            config = textwrap.dedent(
+                f"""
+                mode: advisory
+                score_threshold: 85
+                test_command: "python3 tests.py"
+                runtime:
+                  python: "{platform.python_version()}"
+                lockfiles:
+                  - requirements.txt
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc = subprocess.run(
+                ["python3", str(SCRIPT), "--project-root", str(root), "--phase", "baseline"],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            report = json.loads((root / "reproguard.report.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["summary"]["replay_status"], "skipped")
+            self.assertEqual(report["phases"]["replay"].get("status"), "skipped")
+            self.assertIn("skip_reason", report["phases"]["replay"])
+            # No contract-level checks should have run -> no runtime/lockfile/env issues
+            issue_ids = {x["id"] for x in report["issues"]}
+            self.assertNotIn("lockfile_missing", issue_ids)
+            self.assertNotIn("runtime_drift_python", issue_ids)
+
+    def test_phase_contract_runs_static_checks_but_skips_replay(self):
+        with tempfile.TemporaryDirectory(prefix="rg-phase-contract-") as tmp:
+            root = Path(tmp)
+            write(root / "tests.py", "print('ok')\n")
+            # Intentionally drift runtime so a contract-phase check fires
+            config = textwrap.dedent(
+                """
+                mode: advisory
+                score_threshold: 85
+                test_command: "python3 tests.py"
+                runtime:
+                  python: "0.0.1"
+                lockfiles:
+                  - requirements.txt
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc = subprocess.run(
+                ["python3", str(SCRIPT), "--project-root", str(root), "--phase", "contract"],
+                capture_output=True,
+                text=True,
+            )
+            # Replay didn't run; advisory mode + no replay failure => exit 0
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            report = json.loads((root / "reproguard.report.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["summary"]["replay_status"], "skipped")
+            issue_ids = {x["id"] for x in report["issues"]}
+            # Contract checks did run -> runtime drift surfaced
+            self.assertIn("runtime_drift_python", issue_ids)
+            # Replay didn't run -> no replay-phase issues
+            self.assertFalse(any(x["phase"] == "replay" for x in report["issues"]))
+
+    def test_phase_replay_is_default_behavior(self):
+        with tempfile.TemporaryDirectory(prefix="rg-phase-default-") as tmp:
+            root = Path(tmp)
+            write(root / "requirements.txt", "# lock marker\n")
+            write(root / "tests.py", "print('ok')\n")
+            config = textwrap.dedent(
+                f"""
+                mode: advisory
+                score_threshold: 85
+                test_command: "python3 tests.py"
+                runtime:
+                  python: "{platform.python_version()}"
+                lockfiles:
+                  - requirements.txt
+                """
+            ).strip()
+            write(root / "reproguard.yaml", config + "\n")
+            proc, report = run_guard(root)
+            self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+            self.assertEqual(report["summary"]["replay_status"], "passed")
+            self.assertEqual(report["phases"]["replay"].get("status"), "passed")
+
+    def test_doctor_runs_and_reports_environment_info(self):
+        with tempfile.TemporaryDirectory(prefix="rg-doctor-") as tmp:
+            root = Path(tmp)
+            proc = subprocess.run(
+                ["python3", str(SCRIPT), "doctor", "--project-root", str(root)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertIn(0, (proc.returncode,), proc.stderr + proc.stdout)
+            self.assertIn("environment check", proc.stdout)
+            self.assertIn("Python", proc.stdout)
+            self.assertIn("git", proc.stdout)
+            self.assertIn("project type", proc.stdout)
+
+    def test_doctor_returns_fail_for_invalid_config(self):
+        with tempfile.TemporaryDirectory(prefix="rg-doctor-bad-") as tmp:
+            root = Path(tmp)
+            # mode is required to be advisory|strict
+            write(root / "reproguard.yaml", "mode: wrong_mode\nscore_threshold: 9999\n")
+            proc = subprocess.run(
+                ["python3", str(SCRIPT), "doctor", "--project-root", str(root)],
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(proc.returncode, 1, proc.stderr + proc.stdout)
+            self.assertIn("[FAIL]", proc.stdout)
+
+    def test_schema_version_is_1_2_with_skipped_enum(self):
+        schema = json.loads(REPORT_SCHEMA.read_text(encoding="utf-8"))
+        self.assertEqual(schema["properties"]["meta"]["properties"]["schema_version"]["const"], "1.2")
+        replay_status_enum = schema["properties"]["summary"]["properties"]["replay_status"]["enum"]
+        self.assertIn("skipped", replay_status_enum)
 
     def test_init_generates_runnable_config_end_to_end(self):
         with tempfile.TemporaryDirectory(prefix="rg-init-e2e-") as tmp:

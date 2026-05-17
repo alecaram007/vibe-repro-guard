@@ -14,7 +14,7 @@
       "properties": {
         "schema_version": {
           "type": "string",
-          "const": "1.1",
+          "const": "1.2",
           "description": "Report schema version. Consumers should gate parsers on this field."
         },
         "generated_at": {
@@ -57,7 +57,7 @@
         },
         "replay_status": {
           "type": "string",
-          "enum": ["passed", "failed"]
+          "enum": ["passed", "failed", "skipped"]
         },
         "issue_totals": {
           "type": "object",
@@ -252,7 +252,7 @@
         },
         "status": {
           "type": "string",
-          "enum": ["passed", "failed"]
+          "enum": ["passed", "failed", "skipped"]
         },
         "build": {
           "$ref": "#/$defs/command_result"

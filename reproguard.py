@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Vibe Repro Guard v1.5.0
+Vibe Repro Guard v1.6.0
 
 Deterministic replay guardrail for AI-assisted coding projects.
 No external dependencies required (Python stdlib only).
@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 
 ARTIFACT_CONTRACT = "reproguard.contract.json"
 ARTIFACT_REPORT_JSON = "reproguard.report.json"
@@ -888,6 +888,94 @@ def run_explain(argv: List[str]) -> int:
     return 0
 
 
+def run_doctor(argv: List[str]) -> int:
+    parser = argparse.ArgumentParser(
+        prog="reproguard doctor",
+        description="Check the local environment and suggest next steps.",
+    )
+    parser.add_argument("--project-root", default=".", help="Project root to scan")
+    args = parser.parse_args(argv)
+
+    root = Path(args.project_root).resolve()
+    checks: List[Tuple[str, str, str]] = []  # (status, label, detail)
+
+    py_ver = platform.python_version()
+    py_parts = [int(x) for x in py_ver.split(".")[:3] if x.isdigit()]
+    py_status = "ok" if tuple(py_parts[:2]) >= (3, 10) else "warn"
+    py_detail = py_ver
+    if len(py_parts) >= 3 and py_parts[0] == 3 and py_parts[1] == 12 and py_parts[2] >= 10:
+        py_detail += " (note: unittest discover now returns exit 5 on zero tests; reproguard 1.4.1+ handles this)"
+    checks.append((py_status, "Python", py_detail))
+
+    git_check = run_capture(["git", "--version"])
+    if git_check.get("exit_code") == 0:
+        checks.append(("ok", "git", str(git_check.get("stdout") or "").strip() or "available"))
+        git_state = detect_git_state(root)
+        if git_state.get("is_git_repo"):
+            extra = "dirty" if git_state.get("dirty") else "clean"
+            commit = (git_state.get("commit") or "")[:8]
+            branch = git_state.get("branch") or ""
+            checks.append(("ok", "git repo", f"{branch} @ {commit} ({extra})"))
+        else:
+            checks.append(("warn", "git repo", "not inside a git repository"))
+    else:
+        checks.append(("warn", "git", "not available — git baseline metadata will be empty"))
+
+    project_type = detect_project_type(root)
+    active_types = [k for k, v in project_type.items() if v]
+    if active_types:
+        checks.append(("ok", "project type", ", ".join(active_types)))
+    else:
+        checks.append(("warn", "project type", "no manifest detected (package.json, pyproject.toml, Cargo.toml, go.mod, Gemfile, composer.json)"))
+
+    versions = detect_versions()
+    for type_key in active_types:
+        version_key = RUNTIME_VERSION_KEYS.get(type_key)
+        if not version_key:
+            continue
+        info = versions.get(version_key)
+        if info and info.get("exit_code") == 0:
+            combined = " ".join(
+                part.strip()
+                for part in [str(info.get("stdout") or ""), str(info.get("stderr") or "")]
+                if part and part.strip()
+            )
+            token = extract_version_token(combined) or combined
+            checks.append(("ok", f"toolchain: {type_key}", token))
+        else:
+            checks.append(("warn", f"toolchain: {type_key}", f"`{version_key}` not on PATH — replay will fail"))
+
+    cfg_path = root / "reproguard.yaml"
+    if cfg_path.exists():
+        cfg, errors = load_config(cfg_path)
+        if errors:
+            checks.append(("fail", "reproguard.yaml", "config has errors: " + "; ".join(errors[:3])))
+        else:
+            checks.append(("ok", "reproguard.yaml", f"valid (mode={cfg.get('mode')}, threshold={cfg.get('score_threshold')})"))
+    else:
+        checks.append(("warn", "reproguard.yaml", "not found — run 'reproguard init' to generate one"))
+
+    status_labels = {"ok": "[ OK ]", "warn": "[WARN]", "fail": "[FAIL]"}
+    width = max(len(label) for _, label, _ in checks) + 2
+    print(f"reproguard {__version__} — environment check")
+    print(f"project root: {root}")
+    print("")
+    for status, label, detail in checks:
+        print(f"{status_labels.get(status, '[ ?? ]')} {label.ljust(width)} {detail}")
+    print("")
+
+    fails = sum(1 for s, _, _ in checks if s == "fail")
+    warns = sum(1 for s, _, _ in checks if s == "warn")
+    if fails:
+        print(f"{fails} failing check(s). Fix these before running reproguard.")
+        return 1
+    if warns:
+        print(f"{warns} warning(s). reproguard can still run but some features may be limited.")
+    else:
+        print("All checks passed. You're ready to run 'reproguard'.")
+    return 0
+
+
 def run_init(argv: List[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="reproguard init",
@@ -1474,6 +1562,8 @@ def main() -> int:
         return run_init(sys.argv[2:])
     if len(sys.argv) > 1 and sys.argv[1] == "explain":
         return run_explain(sys.argv[2:])
+    if len(sys.argv) > 1 and sys.argv[1] == "doctor":
+        return run_doctor(sys.argv[2:])
 
     parser = argparse.ArgumentParser(
         description="Vibe Repro Guard (run 'reproguard init' to auto-generate a config, 'reproguard explain <id>' to look up an issue)"
@@ -1485,7 +1575,15 @@ def main() -> int:
     parser.add_argument("--timeout-sec", type=int, default=300, help="Per-command timeout in seconds")
     parser.add_argument("--summary-json", action="store_true", help="Print summary as JSON to stdout")
     parser.add_argument("--sarif", action="store_true", help="Also emit a SARIF artifact for GitHub Code Scanning")
+    parser.add_argument(
+        "--phase",
+        choices=("baseline", "contract", "replay"),
+        default="replay",
+        help="Run only up to a given phase. 'baseline' = fingerprint only; 'contract' = baseline + static checks; 'replay' (default) = full pipeline.",
+    )
     args = parser.parse_args()
+    run_contract_checks = args.phase in ("contract", "replay")
+    run_replay = args.phase == "replay"
 
     root = Path(args.project_root).resolve()
     config_path = (root / args.config).resolve()
@@ -1516,7 +1614,7 @@ def main() -> int:
     replay_data: Dict[str, Any] = {}
 
     contract = {
-        "schema_version": "1.1",
+        "schema_version": "1.2",
         "generated_at": started_at,
         "project_root": str(root),
         "output_dir": str(output_dir),
@@ -1535,6 +1633,10 @@ def main() -> int:
 
     apply_git_state_checks(git_state, issues)
 
+    if not run_contract_checks:
+        replay_data["status"] = "skipped"
+        replay_data["skip_reason"] = f"--phase {args.phase}"
+
     if config_errors:
         issues.append(
             issue(
@@ -1547,7 +1649,7 @@ def main() -> int:
                 30,
             )
         )
-    else:
+    elif run_contract_checks:
         replay_runs = int(cfg.get("replay_runs", 2))
         fail_on_lockfile_drift = bool(cfg.get("fail_on_lockfile_drift", True))
         redaction_secrets = build_redaction_secrets(cfg)
@@ -1574,172 +1676,177 @@ def main() -> int:
             )
 
         replay_failed = False
-        with tempfile.TemporaryDirectory(prefix="reproguard-") as tmp_dir:
-            tmp_root = Path(tmp_dir) / "workspace"
-            tmp_root.mkdir(parents=True, exist_ok=True)
-            copy_workspace(root, tmp_root)
-
-            replay_data["workspace"] = str(tmp_root)
-            replay_data["configured_test_runs"] = replay_runs
-            primary_env = dict(os.environ)
-            lock_snapshot_before = snapshot_lockfiles(tmp_root, expected_lockfiles)
-
-            build_result = None
-            if resolved_cmds["build_command"]:
-                build_result = run_shell(
-                    resolved_cmds["build_command"],
-                    cwd=tmp_root,
-                    env=primary_env,
-                    timeout_sec=args.timeout_sec,
-                )
-                build_result = sanitize_run_result(build_result, redaction_secrets)
-                replay_data["build"] = build_result
-                if build_result["exit_code"] != 0:
-                    replay_failed = True
-                    issues.append(
-                        issue(
-                            "replay_build_failed",
-                            "Build failed during replay",
-                            "high",
-                            "replay",
-                            f"Build command exited with {build_result['exit_code']}",
-                            "Fix build reproducibility and ensure required build dependencies are installed.",
-                            20,
-                        )
-                    )
-
-            test_runs: List[Dict[str, Any]] = []
-            if resolved_cmds["test_command"]:
-                for run_index in range(1, replay_runs + 1):
-                    run_result = run_shell(
-                        resolved_cmds["test_command"],
+        if not run_replay:
+            replay_data["status"] = "skipped"
+            replay_data["skip_reason"] = f"--phase {args.phase}"
+        if run_replay:
+            with tempfile.TemporaryDirectory(prefix="reproguard-") as tmp_dir:
+                tmp_root = Path(tmp_dir) / "workspace"
+                tmp_root.mkdir(parents=True, exist_ok=True)
+                copy_workspace(root, tmp_root)
+    
+                replay_data["workspace"] = str(tmp_root)
+                replay_data["configured_test_runs"] = replay_runs
+                primary_env = dict(os.environ)
+                lock_snapshot_before = snapshot_lockfiles(tmp_root, expected_lockfiles)
+    
+                build_result = None
+                if resolved_cmds["build_command"]:
+                    build_result = run_shell(
+                        resolved_cmds["build_command"],
                         cwd=tmp_root,
                         env=primary_env,
                         timeout_sec=args.timeout_sec,
                     )
-                    run_result = sanitize_run_result(run_result, redaction_secrets)
-                    run_result["index"] = run_index
-                    test_runs.append(run_result)
-
-                replay_data["test_runs"] = test_runs
-                if test_runs:
-                    replay_data["test_run_1"] = test_runs[0]
-                if len(test_runs) > 1:
-                    replay_data["test_run_2"] = test_runs[1]
-
-                first_run = test_runs[0]
-                zero_test_signal = detect_zero_test_signal(first_run)
-                if zero_test_signal:
-                    replay_failed = True
+                    build_result = sanitize_run_result(build_result, redaction_secrets)
+                    replay_data["build"] = build_result
+                    if build_result["exit_code"] != 0:
+                        replay_failed = True
+                        issues.append(
+                            issue(
+                                "replay_build_failed",
+                                "Build failed during replay",
+                                "high",
+                                "replay",
+                                f"Build command exited with {build_result['exit_code']}",
+                                "Fix build reproducibility and ensure required build dependencies are installed.",
+                                20,
+                            )
+                        )
+    
+                test_runs: List[Dict[str, Any]] = []
+                if resolved_cmds["test_command"]:
+                    for run_index in range(1, replay_runs + 1):
+                        run_result = run_shell(
+                            resolved_cmds["test_command"],
+                            cwd=tmp_root,
+                            env=primary_env,
+                            timeout_sec=args.timeout_sec,
+                        )
+                        run_result = sanitize_run_result(run_result, redaction_secrets)
+                        run_result["index"] = run_index
+                        test_runs.append(run_result)
+    
+                    replay_data["test_runs"] = test_runs
+                    if test_runs:
+                        replay_data["test_run_1"] = test_runs[0]
+                    if len(test_runs) > 1:
+                        replay_data["test_run_2"] = test_runs[1]
+    
+                    first_run = test_runs[0]
+                    zero_test_signal = detect_zero_test_signal(first_run)
+                    if zero_test_signal:
+                        replay_failed = True
+                        issues.append(
+                            issue(
+                                "test_runs_zero",
+                                "Test command executed zero tests",
+                                "high",
+                                "replay",
+                                f"Replay run reported zero tests ({zero_test_signal}); test command exit code {first_run['exit_code']}.",
+                                "Update test_command to run the real suite and fail when zero tests are collected.",
+                                20,
+                            )
+                        )
+                    elif first_run["exit_code"] != 0:
+                        replay_failed = True
+                        issues.append(
+                            issue(
+                                "replay_test_failed",
+                                "Test command failed during replay",
+                                "high",
+                                "replay",
+                                f"Test run 1 exited with {first_run['exit_code']}",
+                                "Make tests deterministic and verify prerequisites are explicitly declared.",
+                                20,
+                            )
+                        )
+    
+                    exit_codes = {x["exit_code"] for x in test_runs}
+                    output_hashes = {x["stdout_hash"] for x in test_runs}
+                    if len(exit_codes) > 1:
+                        replay_failed = True
+                        exits = ", ".join(str(x["exit_code"]) for x in test_runs)
+                        issues.append(
+                            issue(
+                                "nondeterministic_test_exit",
+                                "Test exit behavior changed across replay runs",
+                                "critical",
+                                "replay",
+                                f"Observed exit sequence across runs: [{exits}]",
+                                "Remove hidden mutable state and stabilize test execution order.",
+                                30,
+                            )
+                        )
+                    elif len(output_hashes) > 1:
+                        replay_failed = True
+                        hashes = ", ".join(x["stdout_hash"] for x in test_runs)
+                        issues.append(
+                            issue(
+                                "nondeterministic_test_output",
+                                "Test output changed across replay runs",
+                                "high",
+                                "replay",
+                                f"All runs exited the same but produced different output hashes: [{hashes}]",
+                                "Stabilize log output and remove non-deterministic sources (time/random/system ordering).",
+                                20,
+                            )
+                        )
+    
+                    minimized = minimal_env(cfg.get("required_env", []))
+                    tmp_root_min_env = Path(tmp_dir) / "workspace-min-env"
+                    tmp_root_min_env.mkdir(parents=True, exist_ok=True)
+                    copy_workspace(root, tmp_root_min_env)
+                    test_min_env = run_shell(
+                        resolved_cmds["test_command"],
+                        cwd=tmp_root_min_env,
+                        env=minimized,
+                        timeout_sec=args.timeout_sec,
+                    )
+                    replay_data["test_min_env"] = {
+                        "command": test_min_env["command"],
+                        "exit_code": test_min_env["exit_code"],
+                        "duration_sec": test_min_env["duration_sec"],
+                        "workspace": str(tmp_root_min_env),
+                    }
+    
+                    if first_run["exit_code"] == 0 and test_min_env["exit_code"] != 0:
+                        issues.append(
+                            issue(
+                                "hidden_env_dependency",
+                                "Replay depends on undeclared environment variables",
+                                "high",
+                                "replay",
+                                f"Primary test pass, minimal-env test failed with exit {test_min_env['exit_code']}",
+                                "Declare all required variables in required_env and document safe defaults.",
+                                20,
+                            )
+                        )
+    
+                lock_snapshot_after = snapshot_lockfiles(tmp_root, expected_lockfiles)
+                lock_drift = diff_lockfile_snapshots(expected_lockfiles, lock_snapshot_before, lock_snapshot_after)
+                if lock_drift["created"] or lock_drift["changed"] or lock_drift["deleted"]:
+                    replay_data["lockfile_drift"] = lock_drift
+                    evidence = (
+                        f"created={lock_drift['created']}, changed={lock_drift['changed']}, "
+                        f"deleted={lock_drift['deleted']}"
+                    )
                     issues.append(
                         issue(
-                            "test_runs_zero",
-                            "Test command executed zero tests",
+                            "lockfile_drift",
+                            "Lockfile drift detected during replay",
                             "high",
                             "replay",
-                            f"Replay run reported zero tests ({zero_test_signal}); test command exit code {first_run['exit_code']}.",
-                            "Update test_command to run the real suite and fail when zero tests are collected.",
+                            evidence,
+                            "Commit deterministic lockfile updates or stabilize dependency install commands.",
                             20,
                         )
                     )
-                elif first_run["exit_code"] != 0:
-                    replay_failed = True
-                    issues.append(
-                        issue(
-                            "replay_test_failed",
-                            "Test command failed during replay",
-                            "high",
-                            "replay",
-                            f"Test run 1 exited with {first_run['exit_code']}",
-                            "Make tests deterministic and verify prerequisites are explicitly declared.",
-                            20,
-                        )
-                    )
+                    if fail_on_lockfile_drift:
+                        replay_failed = True
 
-                exit_codes = {x["exit_code"] for x in test_runs}
-                output_hashes = {x["stdout_hash"] for x in test_runs}
-                if len(exit_codes) > 1:
-                    replay_failed = True
-                    exits = ", ".join(str(x["exit_code"]) for x in test_runs)
-                    issues.append(
-                        issue(
-                            "nondeterministic_test_exit",
-                            "Test exit behavior changed across replay runs",
-                            "critical",
-                            "replay",
-                            f"Observed exit sequence across runs: [{exits}]",
-                            "Remove hidden mutable state and stabilize test execution order.",
-                            30,
-                        )
-                    )
-                elif len(output_hashes) > 1:
-                    replay_failed = True
-                    hashes = ", ".join(x["stdout_hash"] for x in test_runs)
-                    issues.append(
-                        issue(
-                            "nondeterministic_test_output",
-                            "Test output changed across replay runs",
-                            "high",
-                            "replay",
-                            f"All runs exited the same but produced different output hashes: [{hashes}]",
-                            "Stabilize log output and remove non-deterministic sources (time/random/system ordering).",
-                            20,
-                        )
-                    )
-
-                minimized = minimal_env(cfg.get("required_env", []))
-                tmp_root_min_env = Path(tmp_dir) / "workspace-min-env"
-                tmp_root_min_env.mkdir(parents=True, exist_ok=True)
-                copy_workspace(root, tmp_root_min_env)
-                test_min_env = run_shell(
-                    resolved_cmds["test_command"],
-                    cwd=tmp_root_min_env,
-                    env=minimized,
-                    timeout_sec=args.timeout_sec,
-                )
-                replay_data["test_min_env"] = {
-                    "command": test_min_env["command"],
-                    "exit_code": test_min_env["exit_code"],
-                    "duration_sec": test_min_env["duration_sec"],
-                    "workspace": str(tmp_root_min_env),
-                }
-
-                if first_run["exit_code"] == 0 and test_min_env["exit_code"] != 0:
-                    issues.append(
-                        issue(
-                            "hidden_env_dependency",
-                            "Replay depends on undeclared environment variables",
-                            "high",
-                            "replay",
-                            f"Primary test pass, minimal-env test failed with exit {test_min_env['exit_code']}",
-                            "Declare all required variables in required_env and document safe defaults.",
-                            20,
-                        )
-                    )
-
-            lock_snapshot_after = snapshot_lockfiles(tmp_root, expected_lockfiles)
-            lock_drift = diff_lockfile_snapshots(expected_lockfiles, lock_snapshot_before, lock_snapshot_after)
-            if lock_drift["created"] or lock_drift["changed"] or lock_drift["deleted"]:
-                replay_data["lockfile_drift"] = lock_drift
-                evidence = (
-                    f"created={lock_drift['created']}, changed={lock_drift['changed']}, "
-                    f"deleted={lock_drift['deleted']}"
-                )
-                issues.append(
-                    issue(
-                        "lockfile_drift",
-                        "Lockfile drift detected during replay",
-                        "high",
-                        "replay",
-                        evidence,
-                        "Commit deterministic lockfile updates or stabilize dependency install commands.",
-                        20,
-                    )
-                )
-                if fail_on_lockfile_drift:
-                    replay_failed = True
-
-        replay_data["status"] = "failed" if replay_failed else "passed"
+        if run_replay:
+            replay_data["status"] = "failed" if replay_failed else "passed"
 
     score, sev_totals = score_issues(issues)
     mode = cfg.get("mode", "advisory")
@@ -1756,7 +1863,7 @@ def main() -> int:
 
     report = {
         "meta": {
-            "schema_version": "1.1",
+            "schema_version": "1.2",
             "generated_at": dt.datetime.now(dt.timezone.utc).replace(microsecond=0, tzinfo=None).isoformat() + "Z",
             "project_root": str(root),
             "output_dir": str(output_dir),
